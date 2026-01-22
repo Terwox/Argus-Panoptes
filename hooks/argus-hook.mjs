@@ -50,8 +50,8 @@ function extractTaskFromTranscript(transcriptPath) {
       try {
         const entry = JSON.parse(line);
         if (entry.type === 'user' && entry.message?.content) {
-          // Extract first ~100 chars of the task
-          const task = entry.message.content.slice(0, 100);
+          // Extract first ~300 chars of the task (enough for tooltip)
+          const task = entry.message.content.slice(0, 300);
           return task.length < entry.message.content.length ? task + '...' : task;
         }
       } catch (e) {
@@ -62,6 +62,13 @@ function extractTaskFromTranscript(transcriptPath) {
     // Ignore read errors
   }
   return undefined;
+}
+
+// Construct subagent transcript path from session info
+function getSubagentTranscriptPath(transcriptPath, agentId) {
+  if (!transcriptPath || !agentId) return undefined;
+  const dir = join(transcriptPath, '..', basename(transcriptPath, '.jsonl'), 'subagents');
+  return join(dir, `agent-${agentId}.jsonl`);
 }
 
 // Try to read .omc state for richer context
@@ -111,6 +118,7 @@ function mapHookToEvent(hookPayload) {
 
   const {
     session_id,
+    transcript_path,
     cwd,
     hook_event_name,
     message,
@@ -183,25 +191,28 @@ function mapHookToEvent(hookPayload) {
       };
 
     case 'SubagentStart':
+      // Try to get task from transcript (Claude Code doesn't send it in the hook payload)
+      const subagentPath = getSubagentTranscriptPath(transcript_path, agent_id);
+      const startTask = extractTaskFromTranscript(subagentPath) || subagent_prompt?.slice(0, 300);
       return {
         ...base,
         type: 'agent_spawn',
         agentType: 'subagent',
         agentId: agent_id,
-        agentName: agent_type || subagent_type, // agent_type is the actual field name
-        task: subagent_prompt?.slice(0, 200), // Not always sent by Claude Code
+        agentName: agent_type || subagent_type,
+        task: startTask,
       };
 
     case 'SubagentStop':
       // Try to extract the task from the subagent transcript
-      const task = extractTaskFromTranscript(agent_transcript_path);
+      const stopTask = extractTaskFromTranscript(agent_transcript_path);
       return {
         ...base,
         type: 'agent_complete',
         agentType: 'subagent',
         agentId: agent_id,
         agentName: agent_type || subagent_type,
-        task: task,
+        task: stopTask,
       };
 
     default:
