@@ -12,6 +12,7 @@ import type { WSContext } from 'hono/ws';
 import type { ArgusEvent, WSMessage } from '../shared/types.js';
 import { handleEvent } from './events.js';
 import * as state from './state.js';
+import { discoverExistingSessions } from './discover.js';
 
 const PORT = parseInt(process.env.ARGUS_PORT || '4242', 10);
 
@@ -122,3 +123,15 @@ console.log(`
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 `);
+
+// Discover existing Claude sessions on startup
+const discovered = discoverExistingSessions();
+if (discovered > 0) {
+  console.log(`[Argus] Discovered ${discovered} active session(s)`);
+
+  // Broadcast initial state to any connected clients
+  broadcast({
+    type: 'state_update',
+    payload: state.getState(),
+  });
+}
