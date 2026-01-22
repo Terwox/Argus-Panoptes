@@ -39,31 +39,37 @@ function projectNameFromPath(path: string): string {
 }
 
 /**
- * Find recent transcript files in a project directory
+ * Find the most recent transcript file in a project directory (if active)
  */
-function findRecentTranscripts(projectDir: string): string[] {
+function findMostRecentTranscript(projectDir: string): string | null {
   const now = Date.now();
-  const transcripts: string[] = [];
+  let mostRecent: { path: string; mtime: number } | null = null;
 
   try {
     const files = readdirSync(projectDir);
 
     for (const file of files) {
-      if (file.endsWith('.jsonl')) {
+      // Only consider main session transcripts (UUID.jsonl), not subagent transcripts
+      if (file.endsWith('.jsonl') && !file.includes('/')) {
         const filePath = join(projectDir, file);
         const stats = statSync(filePath);
 
-        // Check if modified recently
-        if (now - stats.mtimeMs < RECENT_THRESHOLD) {
-          transcripts.push(filePath);
+        // Track the most recently modified
+        if (!mostRecent || stats.mtimeMs > mostRecent.mtime) {
+          mostRecent = { path: filePath, mtime: stats.mtimeMs };
         }
       }
+    }
+
+    // Only return if modified recently enough
+    if (mostRecent && now - mostRecent.mtime < RECENT_THRESHOLD) {
+      return mostRecent.path;
     }
   } catch (e) {
     // Directory might not exist or be inaccessible
   }
 
-  return transcripts;
+  return null;
 }
 
 /**
@@ -123,10 +129,10 @@ export function discoverExistingSessions(): number {
         continue;
       }
 
-      // Find recent transcripts
-      const transcripts = findRecentTranscripts(projectDir);
+      // Find the most recent transcript (if active)
+      const transcriptPath = findMostRecentTranscript(projectDir);
 
-      for (const transcriptPath of transcripts) {
+      if (transcriptPath) {
         const info = parseTranscript(transcriptPath);
 
         if (info) {
