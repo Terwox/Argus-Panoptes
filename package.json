@@ -1,0 +1,33 @@
+{
+  "name": "argus-panoptes",
+  "version": "0.1.0",
+  "description": "Multi-agent supervision dashboard for Claude Code sessions",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:client": "vite client",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build client",
+    "build:server": "tsc -p tsconfig.server.json",
+    "start": "node dist/server/index.js"
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "@hono/node-ws": "^1.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^3.1.0",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "concurrently": "^9.0.0",
+    "svelte": "^4.2.0",
+    "tailwindcss": "^3.4.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0"
+  }
+}
