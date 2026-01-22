@@ -85,10 +85,10 @@ export function onSessionStart(
   const project = getOrCreateProject(projectPath, projectName);
   const agents = project.agents as Map<string, Agent>;
 
-  // Clean up completed agents from previous sessions
-  // Keep only: the new session, or agents that are still working/blocked
+  // Clean up old completed main agents only (keep subagents for history)
+  // Only remove if it's a different session's main agent that completed
   for (const [id, agent] of agents) {
-    if (agent.status === 'complete') {
+    if (agent.type === 'main' && agent.status === 'complete' && id !== sessionId) {
       agents.delete(id);
     }
   }

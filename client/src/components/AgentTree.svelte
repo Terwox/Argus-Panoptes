@@ -50,7 +50,7 @@
       <span>{statusIcon(main.status)}</span>
       <span class="text-gray-400">main</span>
       {#if main.task}
-        <span class="text-gray-600 truncate text-xs">— {main.task}</span>
+        <span class="text-gray-600 truncate text-xs max-w-[300px]" title={main.task}>— {main.task}</span>
       {/if}
     </div>
 
@@ -62,11 +62,10 @@
           </span>
           <span>{statusIcon(sub.status)}</span>
           <span class="text-gray-400">{sub.name || 'subagent'}</span>
-          {#if sub.task}
-            <span class="text-gray-600 truncate text-xs max-w-[200px]">
-              — {sub.task}
-            </span>
-          {/if}
+          <span
+            class="text-gray-600 truncate text-xs flex-1 min-w-0"
+            title={sub.task || '(no task)'}
+          >— {sub.task || '(no task)'}</span>
         </div>
       {/each}
     {/if}
