@@ -85,11 +85,15 @@ export function onSessionStart(
   const project = getOrCreateProject(projectPath, projectName);
   const agents = project.agents as Map<string, Agent>;
 
-  // Clean up old completed main agents only (keep subagents for history)
-  // Only remove if it's a different session's main agent that completed
+  // Clean up old/stale main agents (keep subagents for history)
+  const staleThreshold = Date.now() - 5 * 60 * 1000; // 5 minutes
   for (const [id, agent] of agents) {
-    if (agent.type === 'main' && agent.status === 'complete' && id !== sessionId) {
-      agents.delete(id);
+    if (agent.type === 'main' && id !== sessionId) {
+      // Remove completed agents, or blocked agents that are stale
+      if (agent.status === 'complete' ||
+          (agent.status === 'blocked' && agent.lastActivityAt < staleThreshold)) {
+        agents.delete(id);
+      }
     }
   }
 
@@ -322,13 +326,29 @@ export function getState(): ArgusState {
   };
 }
 
-// Clean up stale projects (no activity for 30 minutes)
+// Clean up stale projects and agents
 export function cleanupStale(): void {
-  const threshold = Date.now() - 30 * 60 * 1000;
+  const projectThreshold = Date.now() - 30 * 60 * 1000; // 30 min for idle projects
+  const agentThreshold = Date.now() - 5 * 60 * 1000; // 5 min for blocked agents
 
   for (const [id, project] of projects) {
-    if (project.lastActivityAt < threshold && project.status === 'idle') {
+    // Clean up stale idle projects
+    if (project.lastActivityAt < projectThreshold && project.status === 'idle') {
       projects.delete(id);
+      continue;
     }
+
+    // Clean up stale blocked main agents within active projects
+    const agents = project.agents as Map<string, Agent>;
+    for (const [agentId, agent] of agents) {
+      if (agent.type === 'main' &&
+          agent.status === 'blocked' &&
+          agent.lastActivityAt < agentThreshold) {
+        agents.delete(agentId);
+      }
+    }
+
+    // Update project status after cleanup
+    updateProjectStatus(project);
   }
 }
