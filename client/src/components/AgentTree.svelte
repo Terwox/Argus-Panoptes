@@ -61,10 +61,10 @@
   {#each mainAgents as main}
     <div class="flex items-center gap-2 {statusColor(main.status)}">
       <span>{statusIcon(main.status)}</span>
-      <span class="text-gray-400">main</span>
+      <span class="text-gray-300">main</span>
       {#if statusText(main)}
         <span
-          class="text-gray-600 truncate text-xs flex-1 min-w-0"
+          class="text-gray-400 truncate text-xs flex-1 min-w-0"
           title={statusText(main)}
         >— {statusText(main)}</span>
       {/if}
@@ -73,13 +73,13 @@
     {#if subagentsByParent[main.id]}
       {#each subagentsByParent[main.id] as sub, i}
         <div class="flex items-center gap-2 ml-4 {statusColor(sub.status)}">
-          <span class="text-gray-600">
+          <span class="text-gray-500">
             {i === subagentsByParent[main.id].length - 1 ? '└─' : '├─'}
           </span>
           <span>{statusIcon(sub.status)}</span>
-          <span class="text-gray-400">{sub.name || 'subagent'}</span>
+          <span class="text-gray-300">{sub.name || 'subagent'}</span>
           <span
-            class="text-gray-600 truncate text-xs flex-1 min-w-0"
+            class="text-gray-400 truncate text-xs flex-1 min-w-0"
             title={statusText(sub) || '(no task)'}
           >— {statusText(sub) || '(no task)'}</span>
         </div>
@@ -92,7 +92,7 @@
     {#each agents as agent}
       <div class="flex items-center gap-2 {statusColor(agent.status)}">
         <span>{statusIcon(agent.status)}</span>
-        <span class="text-gray-400">{agent.name || agent.type}</span>
+        <span class="text-gray-300">{agent.name || agent.type}</span>
       </div>
     {/each}
   {/if}
