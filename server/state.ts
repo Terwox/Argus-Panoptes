@@ -199,13 +199,12 @@ export function onAgentUnblocked(
   const project = getOrCreateProject(projectPath, projectName);
   const agents = project.agents as Map<string, Agent>;
 
-  // Unblock any blocked agents in this session
-  for (const agent of agents.values()) {
-    if (agent.status === 'blocked') {
-      agent.status = 'working';
-      agent.question = undefined;
-      agent.lastActivityAt = Date.now();
-    }
+  // Only unblock the specific session that received input
+  const agent = agents.get(sessionId);
+  if (agent && agent.status === 'blocked') {
+    agent.status = 'working';
+    agent.question = undefined;
+    agent.lastActivityAt = Date.now();
   }
 
   updateProjectStatus(project);

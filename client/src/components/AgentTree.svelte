@@ -42,6 +42,19 @@
         return 'text-gray-500';
     }
   }
+
+  function statusText(agent: Agent): string {
+    switch (agent.status) {
+      case 'blocked':
+        return agent.question || 'Waiting for input...';
+      case 'complete':
+        return agent.task || 'Done';
+      case 'working':
+        return agent.task || '';
+      default:
+        return '';
+    }
+  }
 </script>
 
 <div class="text-sm font-mono">
@@ -49,8 +62,11 @@
     <div class="flex items-center gap-2 {statusColor(main.status)}">
       <span>{statusIcon(main.status)}</span>
       <span class="text-gray-400">main</span>
-      {#if main.task}
-        <span class="text-gray-600 truncate text-xs max-w-[300px]" title={main.task}>— {main.task}</span>
+      {#if statusText(main)}
+        <span
+          class="text-gray-600 truncate text-xs flex-1 min-w-0"
+          title={statusText(main)}
+        >— {statusText(main)}</span>
       {/if}
     </div>
 
@@ -64,8 +80,8 @@
           <span class="text-gray-400">{sub.name || 'subagent'}</span>
           <span
             class="text-gray-600 truncate text-xs flex-1 min-w-0"
-            title={sub.task || '(no task)'}
-          >— {sub.task || '(no task)'}</span>
+            title={statusText(sub) || '(no task)'}
+          >— {statusText(sub) || '(no task)'}</span>
         </div>
       {/each}
     {/if}

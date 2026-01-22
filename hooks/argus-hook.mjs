@@ -99,8 +99,8 @@ function readOmcState(cwd) {
 
 // Map Claude Code hook to Argus event
 function mapHookToEvent(hookPayload) {
-  // Debug: log the full payload for subagent events to a file
-  if (hookPayload.hook_event_name?.includes('Subagent')) {
+  // Debug: log subagent, notification, and stop events
+  if (hookPayload.hook_event_name?.includes('Subagent') || hookPayload.hook_event_name === 'Notification' || hookPayload.hook_event_name === 'Stop') {
     try {
       const debugLine = `[${new Date().toISOString()}] ${hookPayload.hook_event_name}: ${JSON.stringify(hookPayload, null, 2)}\n\n`;
       appendFileSync(DEBUG_LOG, debugLine);
@@ -175,11 +175,11 @@ function mapHookToEvent(hookPayload) {
       };
 
     case 'Stop':
-      // Could be completion or just a pause
+      // Claude stopped and is waiting for user input = blocked
       return {
         ...base,
-        type: 'activity',
-        metadata: { ...base.metadata, stopped: true },
+        type: 'agent_blocked',
+        question: message,
       };
 
     case 'SubagentStart':
