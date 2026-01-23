@@ -7,9 +7,11 @@
     sortedProjects,
     stats,
     viewMode,
+    cuteMode,
   } from './stores/state';
   import ProjectCard from './components/ProjectCard.svelte';
   import ViewToggle from './components/ViewToggle.svelte';
+  import Scoreboard from './components/Scoreboard.svelte';
 
   onMount(() => {
     connect();
@@ -18,6 +20,10 @@
   onDestroy(() => {
     disconnect();
   });
+
+  function toggleCute() {
+    cuteMode.update((v) => !v);
+  }
 </script>
 
 <div class="min-h-screen bg-[#0f0f0f] text-white">
@@ -58,9 +64,29 @@
 
         <!-- View Toggle -->
         <ViewToggle />
+
+        <!-- Cute Mode Toggle -->
+        <button
+          class="px-2 py-1 text-sm rounded-lg transition-colors {$cuteMode
+            ? 'bg-pink-500/20 text-pink-300'
+            : 'bg-white/5 text-gray-400 hover:bg-white/10'}"
+          on:click={toggleCute}
+          title="Toggle cute bot mode"
+        >
+          🤖
+        </button>
       </div>
     </div>
   </header>
+
+  <!-- Scoreboard (secondary stats bar) -->
+  {#if $sortedProjects.length > 0}
+    <div class="bg-[#0f0f0f]/80 border-b border-white/5">
+      <div class="max-w-7xl mx-auto px-4 py-2">
+        <Scoreboard />
+      </div>
+    </div>
+  {/if}
 
   <!-- Main content -->
   <main class="max-w-7xl mx-auto px-4 py-6">

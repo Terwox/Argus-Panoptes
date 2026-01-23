@@ -19,6 +19,14 @@ export const state = writable<ArgusState>({
 // View mode: 'simple' or 'detailed'
 export const viewMode = writable<'simple' | 'detailed'>('simple');
 
+// Cute mode: enables animated bot characters (--cute flag or URL param)
+function getCuteDefault(): boolean {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.has('cute') || params.get('mode') === 'cute';
+}
+export const cuteMode = writable<boolean>(getCuteDefault());
+
 // Derived: sorted projects array
 export const sortedProjects = derived(state, ($state) => {
   const projects = Object.values($state.projects);
@@ -55,6 +63,46 @@ export const stats = derived(state, ($state) => {
     blocked: projects.filter((p) => p.status === 'blocked').length,
     working: projects.filter((p) => p.status === 'working').length,
     idle: projects.filter((p) => p.status === 'idle').length,
+  };
+});
+
+// Derived: detailed metrics (scoreboard)
+export const metrics = derived(state, ($state) => {
+  const projects = Object.values($state.projects);
+  let totalAgents = 0;
+  let workingAgents = 0;
+  let blockedAgents = 0;
+  let completedAgents = 0;
+  let totalWorkingTimeMs = 0;
+  let longestWorkingTimeMs = 0;
+  let longestWorkingAgent: string | null = null;
+
+  for (const project of projects) {
+    const agents = Object.values(project.agents);
+    for (const agent of agents) {
+      totalAgents++;
+      if (agent.status === 'working') workingAgents++;
+      if (agent.status === 'blocked') blockedAgents++;
+      if (agent.status === 'complete') completedAgents++;
+
+      if (agent.workingTime) {
+        totalWorkingTimeMs += agent.workingTime;
+        if (agent.workingTime > longestWorkingTimeMs) {
+          longestWorkingTimeMs = agent.workingTime;
+          longestWorkingAgent = agent.name || agent.type;
+        }
+      }
+    }
+  }
+
+  return {
+    totalAgents,
+    workingAgents,
+    blockedAgents,
+    completedAgents,
+    totalWorkingTimeMs,
+    longestWorkingTimeMs,
+    longestWorkingAgent,
   };
 });
 

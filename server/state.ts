@@ -11,6 +11,7 @@ import type {
   Agent,
   ProjectStatus,
   AgentStatus,
+  SessionModes,
 } from '../shared/types.js';
 
 // In-memory state
@@ -80,7 +81,9 @@ function updateProjectStatus(project: Project): void {
 export function onSessionStart(
   sessionId: string,
   projectPath: string,
-  projectName: string
+  projectName: string,
+  task?: string,
+  modes?: SessionModes
 ): Project {
   const project = getOrCreateProject(projectPath, projectName);
   const agents = project.agents as Map<string, Agent>;
@@ -103,6 +106,8 @@ export function onSessionStart(
     name: 'main',
     type: 'main',
     status: 'working',
+    task,
+    modes,
     spawnedAt: Date.now(),
     lastActivityAt: Date.now(),
   };
@@ -281,7 +286,8 @@ export function onAgentComplete(
 export function onActivity(
   sessionId: string,
   projectPath: string,
-  projectName: string
+  projectName: string,
+  modes?: SessionModes
 ): Project {
   const project = getOrCreateProject(projectPath, projectName);
   const agents = project.agents as Map<string, Agent>;
@@ -289,6 +295,10 @@ export function onActivity(
   const agent = agents.get(sessionId);
   if (agent) {
     agent.lastActivityAt = Date.now();
+    // Update modes if provided (e.g., ralph activated mid-session)
+    if (modes) {
+      agent.modes = modes;
+    }
   }
 
   project.lastActivityAt = Date.now();
@@ -298,6 +308,7 @@ export function onActivity(
 // Get full state for client
 export function getState(): ArgusState {
   const projectsObj: Record<string, Project> = {};
+  const now = Date.now();
 
   for (const [id, project] of projects) {
     // Convert agents Map to Record for JSON serialization
@@ -307,7 +318,15 @@ export function getState(): ArgusState {
     let workingCount = 0;
 
     for (const [agentId, agent] of agents) {
-      agentsObj[agentId] = agent;
+      // Calculate working time for active agents (time since spawn)
+      const workingTime = agent.status !== 'complete'
+        ? now - agent.spawnedAt
+        : agent.lastActivityAt - agent.spawnedAt;
+
+      agentsObj[agentId] = {
+        ...agent,
+        workingTime,
+      };
       if (agent.status === 'blocked') blockedCount++;
       if (agent.status === 'working') workingCount++;
     }

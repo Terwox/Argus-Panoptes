@@ -21,7 +21,7 @@ export function handleEvent(event: ArgusEvent): void {
 
   switch (type) {
     case 'session_start':
-      state.onSessionStart(sessionId, projectPath, projectName);
+      state.onSessionStart(sessionId, projectPath, projectName, event.task, event.modes);
       break;
 
     case 'session_end':
@@ -59,7 +59,7 @@ export function handleEvent(event: ArgusEvent): void {
 
     case 'activity':
     default:
-      state.onActivity(sessionId, projectPath, projectName);
+      state.onActivity(sessionId, projectPath, projectName, event.modes);
       break;
   }
 }

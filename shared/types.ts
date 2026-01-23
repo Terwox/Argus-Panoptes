@@ -25,6 +25,7 @@ export interface ArgusEvent {
   parentAgentId?: string; // for subagents
   question?: string; // if blocked
   task?: string; // current task description
+  modes?: SessionModes; // active modes (ralph, ultrawork, planning)
   metadata?: Record<string, unknown>;
 }
 
@@ -34,6 +35,14 @@ export interface ArgusEvent {
 
 export type ProjectStatus = 'idle' | 'working' | 'blocked';
 export type AgentStatus = 'working' | 'blocked' | 'complete';
+
+export interface SessionModes {
+  ralph?: boolean;
+  ralphIteration?: number;
+  ralphMaxIterations?: number;
+  ultrawork?: boolean;
+  planning?: boolean;
+}
 
 export interface Agent {
   id: string;
@@ -45,6 +54,8 @@ export interface Agent {
   question?: string;
   spawnedAt: number;
   lastActivityAt: number;
+  workingTime?: number; // ms spent working (for "tired" state)
+  modes?: SessionModes; // active modes (ralph, ultrawork, planning)
 }
 
 export interface Project {

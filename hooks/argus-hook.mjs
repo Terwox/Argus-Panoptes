@@ -74,14 +74,16 @@ function getSubagentTranscriptPath(transcriptPath, agentId) {
 // Try to read .omc state for richer context
 function readOmcState(cwd) {
   const state = {};
+  const modes = {};
 
   try {
     const ralphPath = join(cwd, '.omc', 'ralph-state.json');
     if (existsSync(ralphPath)) {
       const ralph = JSON.parse(readFileSync(ralphPath, 'utf8'));
       if (ralph.active) {
-        state.ralphIteration = ralph.iteration;
-        state.ralphMaxIterations = ralph.max_iterations;
+        modes.ralph = true;
+        modes.ralphIteration = ralph.iteration;
+        modes.ralphMaxIterations = ralph.max_iterations;
         state.originalTask = ralph.original_prompt;
       }
     }
@@ -94,14 +96,57 @@ function readOmcState(cwd) {
     if (existsSync(ultraworkPath)) {
       const ultrawork = JSON.parse(readFileSync(ultraworkPath, 'utf8'));
       if (ultrawork.active) {
-        state.ultraworkActive = true;
+        modes.ultrawork = true;
       }
     }
   } catch (e) {
     // Ignore errors reading state
   }
 
+  try {
+    const planningPath = join(cwd, '.omc', 'planning-state.json');
+    if (existsSync(planningPath)) {
+      const planning = JSON.parse(readFileSync(planningPath, 'utf8'));
+      if (planning.active) {
+        modes.planning = true;
+      }
+    }
+  } catch (e) {
+    // Ignore errors reading state
+  }
+
+  if (Object.keys(modes).length > 0) {
+    state.modes = modes;
+  }
+
   return Object.keys(state).length > 0 ? state : undefined;
+}
+
+// Extract main agent task from session transcript (first user message)
+function extractMainTask(transcriptPath) {
+  if (!transcriptPath || !existsSync(transcriptPath)) return undefined;
+
+  try {
+    const content = readFileSync(transcriptPath, 'utf8');
+    const lines = content.trim().split('\n');
+
+    // Look for the first user message which contains the task
+    for (const line of lines.slice(0, 10)) {
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type === 'user' && entry.message?.content) {
+          // Extract first ~200 chars of the task
+          const task = entry.message.content.slice(0, 200);
+          return task.length < entry.message.content.length ? task + '...' : task;
+        }
+      } catch (e) {
+        // Skip malformed lines
+      }
+    }
+  } catch (e) {
+    // Ignore read errors
+  }
+  return undefined;
 }
 
 // Map Claude Code hook to Argus event
@@ -140,17 +185,27 @@ function mapHookToEvent(hookPayload) {
     projectName: projectName(cwd),
   };
 
-  // Read optional .omc state
+  // Read optional .omc state for modes (ralph, ultrawork, planning)
   const omcState = readOmcState(cwd);
   if (omcState) {
-    base.metadata = { ...base.metadata, ...omcState };
+    if (omcState.modes) {
+      base.modes = omcState.modes;
+    }
+    // Pass other metadata (original task, etc)
+    const { modes, ...otherMeta } = omcState;
+    if (Object.keys(otherMeta).length > 0) {
+      base.metadata = { ...base.metadata, ...otherMeta };
+    }
   }
 
   switch (hook_event_name) {
     case 'SessionStart':
+      // Try to extract the main agent's task from the transcript
+      const mainTask = extractMainTask(transcript_path);
       return {
         ...base,
         type: 'session_start',
+        task: mainTask,
         metadata: { ...base.metadata, source },
       };
 

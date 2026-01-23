@@ -3,7 +3,9 @@
   import AgentTree from './AgentTree.svelte';
   import AgentStatus from './AgentStatus.svelte';
   import BlockedQuestion from './BlockedQuestion.svelte';
+  import CuteWorld from './CuteWorld.svelte';
   import { bounce } from '../lib/bounce';
+  import { cuteMode } from '../stores/state';
 
   export let project: Project;
   export let detailed: boolean = false;
@@ -65,14 +67,16 @@
   </div>
 
   <!-- Agent display -->
-  {#if detailed}
+  {#if $cuteMode && detailed}
+    <CuteWorld {agents} />
+  {:else if detailed}
     <AgentTree {agents} />
   {:else}
     <AgentStatus {agents} />
   {/if}
 
-  <!-- Blocked question -->
-  {#if blockedAgent?.question}
+  <!-- Blocked question (only show if not in cute mode, since CuteWorld shows it) -->
+  {#if blockedAgent?.question && !($cuteMode && detailed)}
     <BlockedQuestion question={blockedAgent.question} />
   {/if}
 </div>

@@ -307,9 +307,12 @@ Grid layout: 2-3 columns depending on viewport. Blocked projects get larger card
 │ C:/Users/james/projects/...         │
 ├─────────────────────────────────────┤
 │                                     │
-│ 🏛️ sisyphus (main)                  │
+│ 🏛️ sisyphus (main) 🔄ralph         │
 │    ├─ 🔍 explore    ✅ done         │
+│    │   "Analyzing codebase..."      │
 │    └─ ⚙️ general    💬 blocked      │
+│        "Implementing TTS pipeline   │
+│         with CosyVoice integration" │
 │                                     │
 │ ┌─────────────────────────────────┐ │
 │ │ "Should I refactor the TTS     │ │
@@ -321,6 +324,13 @@ Grid layout: 2-3 columns depending on viewport. Blocked projects get larger card
 │                                     │
 └─────────────────────────────────────┘
 ```
+
+**Detail View Enhancements:**
+
+- Each agent shows 1-2 sentences describing their current task
+- Main agent shows current task from session (if available)
+- Task text wraps naturally (not just truncated tooltip)
+- Mode badges (🔄 ralph, ⚡ ultrawork, 📋 planning) shown on main agent
 
 ## Bounce Mechanism (Windows)
 
@@ -416,8 +426,8 @@ argus/
 - [ ] Works on Windows
 
 ### Out of Scope (Future)
-- [ ] Cute animated bots walking around (flag: `--cute`)
-- [ ] "Tired" state based on work time
+- [x] Cute animated bots walking around (flag: `--cute` or `?cute` URL param) - **IMPLEMENTED**
+- [x] "Tired" state based on work time - **IMPLEMENTED**
 - [ ] User-defined priority pinning
 - [ ] Uptime / scoreboard metrics
 - [ ] Hover for expanded context
@@ -426,7 +436,72 @@ argus/
 - [ ] Smart terminal bounce (activate specific terminal)
 - [ ] Authentication (not needed for local)
 - [ ] **Claude Desktop monitoring** — show if Claude Desktop is running and if it's "thinking" (spinner active)
-- [ ] **Discover running sessions** — poll for or detect sessions that started before Argus was running
+- [x] **Discover running sessions** — poll for or detect sessions that started before Argus was running - **IMPLEMENTED**
+
+---
+
+## Cute Mode Specification (`?cute` or `--cute`)
+
+Rimworld-style agent simulation within each project card.
+
+### Visual Design
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ DungeonFriends                                   ⚠️ BLOCKED │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│                    "Analyzing..."     "Implementing..."     │
+│                         💭               💭                 │
+│    🎩                   🤖               🤖                 │
+│    🤖  💬 "Should I                                         │
+│   main   refactor..."   architect      executor             │
+│    │                                                        │
+│────┴────────────────────────────────────────────────────────│
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Agent Behaviors
+
+**Conductor (Main Agent):**
+- Wears a hat (visual distinction)
+- Stays on left side of card
+- Shows speech bubble when blocked with the question
+- Summons/dismisses subagents (spawn animation)
+
+**Subagents:**
+- Spawn near conductor, animate outward
+- Wander randomly within card bounds
+- Periodically show speech bubbles with their task
+- Different colors based on status:
+  - Blue: working
+  - Amber: blocked
+  - Green: complete
+- Leg bobbing animation when working
+- Worried eyes when blocked
+- Happy closed eyes when complete
+
+**Tired State:**
+- After 30+ minutes: 😓 droopy eyes, slower movement
+- After 60+ minutes: 😴 very droopy, occasional yawn bubble
+
+### Animation Details
+
+| Animation | Trigger | Duration |
+|-----------|---------|----------|
+| Spawn | New agent appears | 500ms scale-in |
+| Wander | Idle subagent | Continuous, speed ~0.3px/frame |
+| Idle | Reached destination | 2-6s pause |
+| Bubble | Periodic or blocked | Toggle every idle cycle |
+| Leg bob | Working status | 0.3s alternating |
+| Despawn | Agent completes | 500ms scale-out |
+
+### Implementation
+
+- Toggle: 🤖 button in header, or `?cute` URL param
+- Component: `CuteWorld.svelte` replaces `AgentTree.svelte` in detailed view
+- Canvas: Each project card contains a simulation area (180px height)
+- State: Bot positions stored in component, synced with agent state
 
 ## Implementation Order
 
