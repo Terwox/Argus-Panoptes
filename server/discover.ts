@@ -142,13 +142,23 @@ function checkPendingAskUserQuestion(transcriptPath: string): string | null {
           // Content is an array of blocks
           if (Array.isArray(msgContent)) {
             for (const block of msgContent) {
-              if (block.type === 'tool_use' && block.name === 'AskUserQuestion') {
-                // Found a pending AskUserQuestion
-                const questions = block.input?.questions;
-                if (questions && questions.length > 0 && questions[0].question) {
-                  return questions[0].question;
+              if (block.type === 'tool_use') {
+                // AskUserQuestion - explicit user question
+                if (block.name === 'AskUserQuestion') {
+                  const questions = block.input?.questions;
+                  if (questions && questions.length > 0 && questions[0].question) {
+                    return questions[0].question;
+                  }
+                  return 'Waiting for your response...';
                 }
-                return 'Waiting for your response...';
+                // ExitPlanMode - plan approval dialog
+                if (block.name === 'ExitPlanMode') {
+                  return 'Accept this plan?';
+                }
+                // EnterPlanMode - plan mode entry confirmation
+                if (block.name === 'EnterPlanMode') {
+                  return 'Enter plan mode?';
+                }
               }
             }
           }
