@@ -188,29 +188,48 @@
     return 'worker';
   }
 
-  // Get desk position for a role, with fallback for occupied desks
-  function getDeskPosition(role: string): { x: number; y: number } {
-    const desk = DESK_POSITIONS[role] || DESK_POSITIONS.worker;
-    const x = desk.xPct * containerWidth;
-    const y = desk.yPct * containerHeight;
-
-    // Check if this position is already occupied
-    let hasCollision = false;
+  // Check if a position is occupied by any bot
+  function isPositionOccupied(x: number, y: number): boolean {
     for (const bot of bots) {
       const dx = bot.x - x;
       const dy = bot.y - y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < MIN_BOT_DISTANCE) {
-        hasCollision = true;
-        break;
+        return true;
       }
     }
+    return false;
+  }
 
-    if (!hasCollision) {
+  // Get desk position for a role, with fallback to ANY empty desk
+  function getDeskPosition(role: string): { x: number; y: number } {
+    const desk = DESK_POSITIONS[role] || DESK_POSITIONS.worker;
+    const x = desk.xPct * containerWidth;
+    const y = desk.yPct * containerHeight;
+
+    // First try: preferred desk for this role
+    if (!isPositionOccupied(x, y)) {
       return { x, y };
     }
 
-    // Find nearest unoccupied position with offset
+    // Second try: find ANY empty desk (take empty seats!)
+    // Priority order: subagent desks first (not conductor)
+    const deskPriority = ['architect', 'executor', 'explore', 'explorer', 'designer',
+                          'researcher', 'tester', 'writer', 'reviewer', 'worker'];
+
+    for (const deskRole of deskPriority) {
+      const altDesk = DESK_POSITIONS[deskRole];
+      if (!altDesk) continue;
+
+      const altX = altDesk.xPct * containerWidth;
+      const altY = altDesk.yPct * containerHeight;
+
+      if (!isPositionOccupied(altX, altY)) {
+        return { x: altX, y: altY };
+      }
+    }
+
+    // Third try: offsets from preferred desk (all desks full)
     const offsets = [
       { x: 50, y: 0 }, { x: -50, y: 0 },
       { x: 0, y: 30 }, { x: 0, y: -30 },
@@ -221,18 +240,7 @@
       const testX = Math.max(conductorX + CONDUCTOR_EXCLUSION_DISTANCE, Math.min(containerWidth - BOT_SIZE - 10, x + offset.x));
       const testY = Math.max(botMinY, Math.min(botMaxY, y + offset.y));
 
-      let clear = true;
-      for (const bot of bots) {
-        const dx = bot.x - testX;
-        const dy = bot.y - testY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < MIN_BOT_DISTANCE) {
-          clear = false;
-          break;
-        }
-      }
-
-      if (clear) {
+      if (!isPositionOccupied(testX, testY)) {
         return { x: testX, y: testY };
       }
     }
