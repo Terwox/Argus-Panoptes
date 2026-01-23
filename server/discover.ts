@@ -28,6 +28,7 @@ interface ToolInput {
 interface ContentBlock {
   type: string;
   text?: string;  // For user message text blocks
+  thinking?: string;  // For thinking blocks (extended thinking)
   name?: string;  // For tool_use blocks
   input?: ToolInput;
 }
@@ -184,6 +185,18 @@ function extractCurrentActivity(transcriptPath: string): string | null {
 
           // Look for tool calls in this message
           for (const block of msgContent) {
+            // Detect thinking blocks - show the stream of thought
+            if (block.type === 'thinking' && block.thinking) {
+              // Get the last few meaningful lines (most recent thought)
+              const thinkingLines = block.thinking.trim().split('\n').filter((l: string) => l.trim());
+              if (thinkingLines.length > 0) {
+                // Show last meaningful line (most recent thought), limited to reasonable length
+                const lastLine = thinkingLines[thinkingLines.length - 1].slice(0, 120);
+                return `💭 ${lastLine}`;
+              }
+              return '💭 Thinking...';
+            }
+
             // Capture text blocks as fallback (first one found from end)
             if (block.type === 'text' && block.text && !lastAssistantText) {
               // Get first meaningful line of text (skip empty lines)
