@@ -34,13 +34,17 @@
   }
 
   // Calculate grid layout based on project count and cute mode
+  // In cute mode: 2x2 grid (projects + completed work panel as 4th cell)
   $: gridCols = $cuteMode && $viewMode === 'detailed'
     ? 'grid-cols-1 md:grid-cols-2'
     : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
 
-  // DESIGN PRINCIPLE: No scrolling unless >4 projects
+  // Total cells in cute mode includes Completed Work panel as equal-sized cell
+  $: totalCells = $cuteMode ? $sortedProjects.length + 1 : $sortedProjects.length;
+
+  // DESIGN PRINCIPLE: No scrolling unless >4 cells
   // Cards should shrink to fit viewport, not overflow
-  $: allowScroll = $sortedProjects.length > 4;
+  $: allowScroll = totalCells > 4;
 </script>
 
 <div class="h-screen flex flex-col bg-[#0f0f0f] text-white overflow-hidden">
@@ -132,6 +136,7 @@
         </div>
       {:else}
         <!-- Project grid - fills available space, cards shrink to fit -->
+        <!-- In cute mode, Completed Work is a full grid cell (2x2 layout) -->
         <div
           class="grid gap-4 {gridCols} h-full"
           style="grid-auto-rows: {allowScroll ? 'minmax(200px, auto)' : '1fr'};"
@@ -139,13 +144,13 @@
           {#each $sortedProjects as project (project.id)}
             <ProjectCard {project} detailed={$viewMode === 'detailed'} />
           {/each}
+
+          <!-- Completed Work as 4th cell in cute mode (2x2 grid) -->
+          {#if $cuteMode}
+            <CompletedWorkInbox items={$completedWork} />
+          {/if}
         </div>
       {/if}
     </div>
   </main>
-
-  <!-- Completed Work Inbox (only in cute mode) -->
-  {#if $cuteMode}
-    <CompletedWorkInbox items={$completedWork} />
-  {/if}
 </div>
