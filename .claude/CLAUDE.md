@@ -17,6 +17,8 @@
 
 6. **MAX 2 "NEEDS INPUT" NOTIFICATIONS** - When a project is blocked, show the blocked status in max 2 places: the header badge ("Needs input") and the conductor's speech bubble. Don't show redundant overlays or duplicate the question in subagent bubbles.
 
+7. **USER QUESTIONS ARE #1 PRIORITY** - The primary purpose of this dashboard is surfacing questions that terminals have for users. Detect ALL blocking tool calls: AskUserQuestion, ExitPlanMode, EnterPlanMode, permission prompts. Show the actual question text, not generic "Waiting...".
+
 ## Future Ideas
 
 - **Assembly animation**: When conductor spawns a subagent, animate piece-by-piece assembly (body → arms → legs → antenna → mouth → eyes) instead of growing/scaling up.
