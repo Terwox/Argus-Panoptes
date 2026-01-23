@@ -12,7 +12,8 @@ import type { WSContext } from 'hono/ws';
 import type { ArgusEvent, WSMessage } from '../shared/types.js';
 import { handleEvent } from './events.js';
 import * as state from './state.js';
-import { discoverExistingSessions } from './discover.js';
+import { discoverExistingSessions, checkPendingQuestions } from './discover.js';
+import { getFakeActivitiesFromGit } from './gitScanner.js';
 
 const PORT = parseInt(process.env.ARGUS_PORT || '4242', 10);
 
@@ -69,6 +70,22 @@ app.get('/health', (c) => {
   return c.json({ status: 'ok', uptime: process.uptime() });
 });
 
+// GET /git-activities - Get recent git activities for fake projects
+app.get('/git-activities', (c) => {
+  // Get paths from current projects
+  const currentState = state.getState();
+  const projectPaths = Object.values(currentState.projects).map(p => p.path);
+
+  // If no projects, return empty (client will use built-in funny activities)
+  if (projectPaths.length === 0) {
+    return c.json({ activities: [] });
+  }
+
+  // Get activities from git commits
+  const activities = getFakeActivitiesFromGit(projectPaths, 20);
+  return c.json({ activities });
+});
+
 // WebSocket /ws - Real-time updates
 app.get(
   '/ws',
@@ -104,6 +121,19 @@ app.get(
 setInterval(() => {
   state.cleanupStale();
 }, 5 * 60 * 1000);
+
+// Check for pending AskUserQuestion calls every 10 seconds
+// This catches cases where the AskUserQuestion tool doesn't trigger hooks
+setInterval(() => {
+  const updated = checkPendingQuestions();
+  if (updated > 0) {
+    // Broadcast updated state if any sessions changed to blocked
+    broadcast({
+      type: 'state_update',
+      payload: state.getState(),
+    });
+  }
+}, 10 * 1000);
 
 // Start server
 const server = serve({

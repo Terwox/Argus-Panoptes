@@ -111,11 +111,11 @@
     <!-- Main agent header -->
     <div class="flex items-center gap-2 {statusColor(main.status)}">
       {#if $cuteMode}
-        <CuteBot status={main.status} isTired={!!tiredIndicator(main)} size="md" />
+        <CuteBot status={main.status} isTired={!!tiredIndicator(main)} size="md" role="conductor" />
       {:else}
         <span class="text-agent">{statusIcon(main.status)}</span>
       {/if}
-      <span class="text-agent text-gray-300">main</span>
+      <span class="text-agent text-gray-300">conductor</span>
       <!-- Mode badges -->
       {#each modeBadges(main.modes) as badge}
         <span class="text-caption px-1.5 py-0.5 rounded {badge.color}">
@@ -148,11 +148,11 @@
             {i === subagentsByParent[main.id].length - 1 ? '└─' : '├─'}
           </span>
           {#if $cuteMode}
-            <CuteBot status={sub.status} isTired={!!tiredIndicator(sub)} size="sm" />
+            <CuteBot status={sub.status} isTired={!!tiredIndicator(sub)} size="sm" role={sub.name || 'worker'} />
           {:else}
             <span class="text-agent">{statusIcon(sub.status)}</span>
           {/if}
-          <span class="text-agent text-gray-300">{sub.name || 'subagent'}</span>
+          <span class="text-agent text-gray-300">{sub.name || 'worker'}</span>
           <!-- Tired indicator for subagent -->
           {#if tiredIndicator(sub)}
             <span
@@ -179,7 +179,7 @@
     {#each agents as agent}
       <div class="flex items-center gap-2 {statusColor(agent.status)}">
         {#if $cuteMode}
-          <CuteBot status={agent.status} isTired={!!tiredIndicator(agent)} size="sm" />
+          <CuteBot status={agent.status} isTired={!!tiredIndicator(agent)} size="sm" role={agent.name || agent.type} />
         {:else}
           <span class="text-agent">{statusIcon(agent.status)}</span>
         {/if}

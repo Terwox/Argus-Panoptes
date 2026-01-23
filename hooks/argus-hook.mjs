@@ -64,6 +64,47 @@ function extractTaskFromTranscript(transcriptPath) {
   return undefined;
 }
 
+// Extract task from main transcript by finding the most recent Task tool call
+function extractTaskFromMainTranscript(transcriptPath, agentType) {
+  if (!transcriptPath || !existsSync(transcriptPath)) return undefined;
+
+  try {
+    const content = readFileSync(transcriptPath, 'utf8');
+    const lines = content.trim().split('\n');
+
+    // Search from end to find the most recent Task tool call matching this agent type
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(lines[i]);
+        if (entry.type === 'assistant' && entry.message?.content) {
+          const contentBlocks = entry.message.content;
+          if (Array.isArray(contentBlocks)) {
+            for (const block of contentBlocks) {
+              if (block.type === 'tool_use' && block.name === 'Task') {
+                const input = block.input || {};
+                // Check if this Task call matches the agent type we're looking for
+                if (!agentType || input.subagent_type === agentType) {
+                  // Prefer description (short), fall back to prompt (long)
+                  const task = input.description || input.prompt;
+                  if (task) {
+                    const trimmed = task.slice(0, 300);
+                    return trimmed.length < task.length ? trimmed + '...' : trimmed;
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // Skip malformed lines
+      }
+    }
+  } catch (e) {
+    // Ignore read errors
+  }
+  return undefined;
+}
+
 // Construct subagent transcript path from session info
 function getSubagentTranscriptPath(transcriptPath, agentId) {
   if (!transcriptPath || !agentId) return undefined;
@@ -122,6 +163,22 @@ function readOmcState(cwd) {
   return Object.keys(state).length > 0 ? state : undefined;
 }
 
+// Extract text from message content (handles both string and array formats)
+function extractTextFromContent(content) {
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    // Find the first text block
+    for (const block of content) {
+      if (block.type === 'text' && block.text) {
+        return block.text;
+      }
+    }
+  }
+  return '';
+}
+
 // Extract main agent task from session transcript (first user message)
 function extractMainTask(transcriptPath) {
   if (!transcriptPath || !existsSync(transcriptPath)) return undefined;
@@ -131,13 +188,16 @@ function extractMainTask(transcriptPath) {
     const lines = content.trim().split('\n');
 
     // Look for the first user message which contains the task
-    for (const line of lines.slice(0, 10)) {
+    for (const line of lines.slice(0, 15)) {
       try {
         const entry = JSON.parse(line);
         if (entry.type === 'user' && entry.message?.content) {
-          // Extract first ~200 chars of the task
-          const task = entry.message.content.slice(0, 200);
-          return task.length < entry.message.content.length ? task + '...' : task;
+          const text = extractTextFromContent(entry.message.content);
+          if (text) {
+            // Extract first ~100 chars of the task
+            const task = text.slice(0, 100);
+            return task.length < text.length ? task + '...' : task;
+          }
         }
       } catch (e) {
         // Skip malformed lines
@@ -149,16 +209,64 @@ function extractMainTask(transcriptPath) {
   return undefined;
 }
 
+// Check if the last assistant message has an unanswered blocking tool call
+// (AskUserQuestion or ExitPlanMode)
+function hasPendingBlockingToolCall(transcriptPath) {
+  if (!transcriptPath || !existsSync(transcriptPath)) return null;
+
+  try {
+    const content = readFileSync(transcriptPath, 'utf8');
+    const lines = content.trim().split('\n');
+
+    // Read from end to find the last assistant message
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(lines[i]);
+
+        // If we find a user message first, no pending question
+        if (entry.type === 'user') return null;
+
+        // Check if this is an assistant message with a blocking tool call
+        if (entry.type === 'assistant' && entry.message?.content) {
+          const contentBlocks = entry.message.content;
+          // Content is an array of blocks
+          if (Array.isArray(contentBlocks)) {
+            for (const block of contentBlocks) {
+              if (block.type === 'tool_use') {
+                // AskUserQuestion - waiting for user to answer
+                if (block.name === 'AskUserQuestion') {
+                  const questions = block.input?.questions;
+                  if (questions && questions.length > 0) {
+                    return questions[0].question || 'Waiting for your response...';
+                  }
+                  return 'Waiting for your response...';
+                }
+                // ExitPlanMode - waiting for plan approval
+                if (block.name === 'ExitPlanMode') {
+                  return 'Waiting for plan approval...';
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // Skip malformed lines
+      }
+    }
+  } catch (e) {
+    // Ignore read errors
+  }
+  return null;
+}
+
 // Map Claude Code hook to Argus event
 function mapHookToEvent(hookPayload) {
-  // Debug: log subagent, notification, and stop events
-  if (hookPayload.hook_event_name?.includes('Subagent') || hookPayload.hook_event_name === 'Notification' || hookPayload.hook_event_name === 'Stop') {
-    try {
-      const debugLine = `[${new Date().toISOString()}] ${hookPayload.hook_event_name}: ${JSON.stringify(hookPayload, null, 2)}\n\n`;
-      appendFileSync(DEBUG_LOG, debugLine);
-    } catch (e) {
-      // Ignore write errors
-    }
+  // Debug: log ALL events to understand the hook lifecycle
+  try {
+    const debugLine = `[${new Date().toISOString()}] ${hookPayload.hook_event_name}: ${JSON.stringify(hookPayload, null, 2)}\n\n`;
+    appendFileSync(DEBUG_LOG, debugLine);
+  } catch (e) {
+    // Ignore write errors
   }
 
   const {
@@ -169,6 +277,9 @@ function mapHookToEvent(hookPayload) {
     message,
     notification_type,
     source,
+    // Tool fields (for PreToolUse, PostToolUse, PermissionRequest)
+    tool_name,
+    tool_input,
     // Subagent fields (actual names from Claude Code)
     agent_id,
     agent_type,
@@ -216,12 +327,16 @@ function mapHookToEvent(hookPayload) {
       };
 
     case 'Notification':
-      // Only care about idle_prompt (blocked state)
-      if (notification_type === 'idle_prompt') {
+      // These notification types mean the session is waiting for user input
+      // idle_prompt: Claude waiting >60s for input
+      // permission_prompt: Permission dialog shown
+      // elicitation_dialog: MCP tool parameter gathering
+      const blockedNotifications = ['idle_prompt', 'permission_prompt', 'elicitation_dialog'];
+      if (blockedNotifications.includes(notification_type)) {
         return {
           ...base,
           type: 'agent_blocked',
-          question: message,
+          question: message || `Waiting (${notification_type})...`,
         };
       }
       // Other notifications = activity
@@ -229,6 +344,14 @@ function mapHookToEvent(hookPayload) {
         ...base,
         type: 'activity',
         metadata: { ...base.metadata, notification_type, message },
+      };
+
+    case 'PermissionRequest':
+      // Permission dialog is shown - session is blocked waiting for approval
+      return {
+        ...base,
+        type: 'agent_blocked',
+        question: `Permission needed: ${hookPayload.tool_name || 'tool'}`,
       };
 
     case 'UserPromptSubmit':
@@ -239,22 +362,70 @@ function mapHookToEvent(hookPayload) {
 
     case 'Stop':
       // Claude stopped and is waiting for user input = blocked
+      // Check transcript for pending blocking tools (AskUserQuestion, ExitPlanMode)
+      const pendingQuestion = hasPendingBlockingToolCall(transcript_path);
       return {
         ...base,
         type: 'agent_blocked',
-        question: message,
+        question: pendingQuestion || message || 'Waiting for input...',
+      };
+
+    case 'PreToolUse':
+      // Capture delegation when Task tool is about to be called
+      if (tool_name === 'Task' && tool_input) {
+        const delegatingTo = tool_input.subagent_type || 'agent';
+        const delegationTask = tool_input.description || tool_input.prompt?.slice(0, 100);
+        return {
+          ...base,
+          type: 'activity',
+          metadata: {
+            ...base.metadata,
+            delegatingTo,
+            delegationTask,
+          },
+        };
+      }
+      // Other tool uses are just activity
+      return {
+        ...base,
+        type: 'activity',
+        metadata: { ...base.metadata, tool_name },
+      };
+
+    case 'PostToolUse':
+      // Clear delegation status when Task tool completes
+      if (tool_name === 'Task') {
+        return {
+          ...base,
+          type: 'activity',
+          metadata: {
+            ...base.metadata,
+            delegatingTo: null, // Clear delegation
+          },
+        };
+      }
+      return {
+        ...base,
+        type: 'activity',
+        metadata: { ...base.metadata, tool_name },
       };
 
     case 'SubagentStart':
-      // Try to get task from transcript (Claude Code doesn't send it in the hook payload)
+      // Try multiple sources for the task:
+      // 1. Subagent transcript (if it exists already)
+      // 2. Main transcript (find the Task tool call that spawned this agent)
+      // 3. Legacy subagent_prompt field
       const subagentPath = getSubagentTranscriptPath(transcript_path, agent_id);
-      const startTask = extractTaskFromTranscript(subagentPath) || subagent_prompt?.slice(0, 300);
+      const agentTypeName = agent_type || subagent_type;
+      const startTask = extractTaskFromTranscript(subagentPath)
+        || extractTaskFromMainTranscript(transcript_path, agentTypeName)
+        || subagent_prompt?.slice(0, 300);
       return {
         ...base,
         type: 'agent_spawn',
         agentType: 'subagent',
         agentId: agent_id,
-        agentName: agent_type || subagent_type,
+        agentName: agentTypeName,
         task: startTask,
       };
 

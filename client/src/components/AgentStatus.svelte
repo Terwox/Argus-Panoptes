@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Agent } from '../../../shared/types';
+  import { cuteMode } from '../stores/state';
+  import CuteBot from './CuteBot.svelte';
 
   export let agents: Agent[];
 
@@ -12,21 +14,33 @@
 <div class="flex items-center gap-3 text-sm">
   {#if blocked > 0}
     <span class="flex items-center gap-1 text-blocked">
-      <span>💬</span>
+      {#if $cuteMode}
+        <CuteBot status="blocked" size="xs" />
+      {:else}
+        <span>💬</span>
+      {/if}
       {blocked} blocked
     </span>
   {/if}
 
   {#if working > 0}
     <span class="flex items-center gap-1 text-working">
-      <span>⏳</span>
+      {#if $cuteMode}
+        <CuteBot status="working" size="xs" />
+      {:else}
+        <span>⏳</span>
+      {/if}
       {working} working
     </span>
   {/if}
 
   {#if complete > 0}
     <span class="flex items-center gap-1 text-green-500">
-      <span>✅</span>
+      {#if $cuteMode}
+        <CuteBot status="complete" size="xs" />
+      {:else}
+        <span>✅</span>
+      {/if}
       {complete} done
     </span>
   {/if}

@@ -4,8 +4,9 @@
  * Manages WebSocket connection and state updates
  */
 
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import type { ArgusState, Project, WSMessage } from '../../../shared/types.js';
+import { generateFakeProjects, refreshFakeActivities, fetchGitActivities } from '../lib/fakeProjects.js';
 
 // WebSocket connection state
 export const connected = writable(false);
@@ -13,22 +14,39 @@ export const connected = writable(false);
 // Main state store
 export const state = writable<ArgusState>({
   projects: {},
+  completedWork: [],
   lastUpdated: 0,
 });
 
-// View mode: 'simple' or 'detailed'
-export const viewMode = writable<'simple' | 'detailed'>('simple');
+// Derived: completed work items for inbox
+export const completedWork = derived(state, ($state) => $state.completedWork || []);
 
-// Cute mode: enables animated bot characters (--cute flag or URL param)
+// View mode: 'simple' or 'detailed' - default to detailed for full bot visualization
+export const viewMode = writable<'simple' | 'detailed'>('detailed');
+
+// Cute mode: enables animated bot characters - ON by default, can disable with ?cute=false
 function getCuteDefault(): boolean {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === 'undefined') return true;
   const params = new URLSearchParams(window.location.search);
-  return params.has('cute') || params.get('mode') === 'cute';
+  // Default ON, only disable if explicitly set to false
+  return params.get('cute') !== 'false';
 }
 export const cuteMode = writable<boolean>(getCuteDefault());
 
-// Derived: sorted projects array
-export const sortedProjects = derived(state, ($state) => {
+// Demo mode: show demo projects when ≤3 real projects - ON by default
+function getFakeDefault(): boolean {
+  if (typeof window === 'undefined') return true;
+  const params = new URLSearchParams(window.location.search);
+  // Default ON, only disable if explicitly set to false
+  return params.get('demo') !== 'false' && params.get('fake') !== 'false';
+}
+export const fakeMode = writable<boolean>(getFakeDefault());
+
+// Store for fake projects (refreshed periodically)
+export const fakeProjects = writable<Project[]>([]);
+
+// Derived: sorted projects array (real projects only)
+export const realProjects = derived(state, ($state) => {
   const projects = Object.values($state.projects);
 
   // Sort by: blocked > working > idle, then by blockedSince (oldest first) or lastActivity
@@ -54,6 +72,20 @@ export const sortedProjects = derived(state, ($state) => {
     return a.name.localeCompare(b.name);
   });
 });
+
+// Derived: sorted projects including fake ones when enabled
+export const sortedProjects = derived(
+  [realProjects, fakeProjects, fakeMode],
+  ([$realProjects, $fakeProjects, $fakeMode]) => {
+    // Only add fakes if <3 real projects and fake mode is enabled (fill to 3 total)
+    if (!$fakeMode || $realProjects.length >= 3) {
+      return $realProjects;
+    }
+
+    // Real projects first, then fake ones
+    return [...$realProjects, ...$fakeProjects];
+  }
+);
 
 // Derived: stats
 export const stats = derived(state, ($state) => {
@@ -170,3 +202,55 @@ setInterval(() => {
     ws.send(JSON.stringify({ type: 'ping', payload: null }));
   }
 }, 30000);
+
+// Fake project generation and refresh
+let fakeRefreshInterval: ReturnType<typeof setInterval> | null = null;
+
+// Generate or refresh fake projects when state changes
+state.subscribe(($state) => {
+  const realCount = Object.keys($state.projects).length;
+  const isFakeEnabled = get(fakeMode);
+
+  if (isFakeEnabled && realCount < 3) {
+    // Generate fake projects to fill up to 3 total
+    const currentFakes = get(fakeProjects);
+    const targetFakeCount = 3 - realCount;
+    if (currentFakes.length !== targetFakeCount) {
+      fakeProjects.set(generateFakeProjects(realCount));
+    }
+  } else {
+    // Clear fake projects if we have 3+ real ones or demo mode is off
+    fakeProjects.set([]);
+  }
+});
+
+// Subscribe to fakeMode changes
+fakeMode.subscribe(async ($fakeMode) => {
+  if ($fakeMode) {
+    // Fetch git activities for more realistic fake tasks
+    await fetchGitActivities();
+
+    // Generate initial fakes (fill to 3 total)
+    const realCount = Object.keys(get(state).projects).length;
+    if (realCount < 3) {
+      fakeProjects.set(generateFakeProjects(realCount));
+    }
+
+    // Start refresh interval for fake activity updates
+    if (!fakeRefreshInterval) {
+      fakeRefreshInterval = setInterval(() => {
+        const currentFakes = get(fakeProjects);
+        if (currentFakes.length > 0) {
+          fakeProjects.set(refreshFakeActivities(currentFakes));
+        }
+      }, 5000); // Refresh every 5 seconds
+    }
+  } else {
+    // Clear fakes and stop refresh
+    fakeProjects.set([]);
+    if (fakeRefreshInterval) {
+      clearInterval(fakeRefreshInterval);
+      fakeRefreshInterval = null;
+    }
+  }
+});

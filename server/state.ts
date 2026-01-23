@@ -12,14 +12,29 @@ import type {
   ProjectStatus,
   AgentStatus,
   SessionModes,
+  CompletedWorkItem,
 } from '../shared/types.js';
 
 // In-memory state
 const projects = new Map<string, Project>();
+const completedWork: CompletedWorkItem[] = [];
+const MAX_COMPLETED_ITEMS = 20;
+const COMPLETED_WORK_TTL = 5 * 60 * 1000; // 5 minutes
 
-// Generate project ID from path
+// DESIGN PRINCIPLE: NO DUPLICATE PROJECTS
+// Normalize path for consistent project IDs (case-insensitive on Windows)
+function normalizePath(path: string): string {
+  // Convert to lowercase for case-insensitive comparison (Windows paths)
+  // Also normalize slashes and remove trailing slashes
+  return path
+    .toLowerCase()
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '');
+}
+
+// Generate project ID from path (normalized for deduplication)
 export function projectId(path: string): string {
-  return createHash('sha256').update(path).digest('hex').slice(0, 12);
+  return createHash('sha256').update(normalizePath(path)).digest('hex').slice(0, 12);
 }
 
 // Get or create a project
@@ -88,15 +103,11 @@ export function onSessionStart(
   const project = getOrCreateProject(projectPath, projectName);
   const agents = project.agents as Map<string, Agent>;
 
-  // Clean up old/stale main agents (keep subagents for history)
-  const staleThreshold = Date.now() - 5 * 60 * 1000; // 5 minutes
+  // IMPORTANT: Only ONE main agent per project at a time
+  // Remove ALL other main agents when a new session starts
   for (const [id, agent] of agents) {
     if (agent.type === 'main' && id !== sessionId) {
-      // Remove completed agents, or blocked agents that are stale
-      if (agent.status === 'complete' ||
-          (agent.status === 'blocked' && agent.lastActivityAt < staleThreshold)) {
-        agents.delete(id);
-      }
+      agents.delete(id);
     }
   }
 
@@ -171,7 +182,8 @@ export function onAgentBlocked(
   sessionId: string,
   projectPath: string,
   projectName: string,
-  question: string | undefined
+  question: string | undefined,
+  currentActivity?: string  // What they were doing when blocked
 ): Project {
   const project = getOrCreateProject(projectPath, projectName);
   const agents = project.agents as Map<string, Agent>;
@@ -193,6 +205,10 @@ export function onAgentBlocked(
 
   agent.status = 'blocked';
   agent.question = question;
+  // Preserve what they were doing when they got blocked
+  if (currentActivity) {
+    agent.currentActivity = currentActivity;
+  }
   agent.lastActivityAt = Date.now();
 
   updateProjectStatus(project);
@@ -220,6 +236,32 @@ export function onAgentUnblocked(
   return project;
 }
 
+// Add completed work item to inbox
+function addCompletedWorkItem(
+  agentName: string | undefined,
+  task: string | undefined,
+  projectId: string,
+  projectName: string
+): void {
+  if (!task && !agentName) return; // Nothing meaningful to show
+
+  const item: CompletedWorkItem = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    agentName: agentName || 'agent',
+    task: task || 'Task completed',
+    completedAt: Date.now(),
+    projectId,
+    projectName,
+  };
+
+  completedWork.unshift(item); // Add to front
+
+  // Keep max items
+  if (completedWork.length > MAX_COMPLETED_ITEMS) {
+    completedWork.length = MAX_COMPLETED_ITEMS;
+  }
+}
+
 // Agent completed
 export function onAgentComplete(
   sessionId: string,
@@ -241,6 +283,10 @@ export function onAgentComplete(
       agent.lastActivityAt = Date.now();
       // Update task if provided (extracted from transcript on completion)
       if (task) agent.task = task;
+      // Add to completed work inbox (only subagents)
+      if (agent.type === 'subagent') {
+        addCompletedWorkItem(agent.name, task || agent.task, project.id, project.name);
+      }
       updateProjectStatus(project);
       return project;
     }
@@ -266,6 +312,8 @@ export function onAgentComplete(
     if (matchingAgent) {
       matchingAgent.status = 'complete';
       matchingAgent.lastActivityAt = Date.now();
+      // Add to completed work inbox
+      addCompletedWorkItem(matchingAgent.name, task || matchingAgent.task, project.id, project.name);
       updateProjectStatus(project);
       return project;
     }
@@ -287,7 +335,9 @@ export function onActivity(
   sessionId: string,
   projectPath: string,
   projectName: string,
-  modes?: SessionModes
+  modes?: SessionModes,
+  task?: string,
+  delegatingTo?: string | null
 ): Project {
   const project = getOrCreateProject(projectPath, projectName);
   const agents = project.agents as Map<string, Agent>;
@@ -299,10 +349,55 @@ export function onActivity(
     if (modes) {
       agent.modes = modes;
     }
+    // Update task if provided and we don't have one yet
+    if (task && !agent.task) {
+      agent.task = task;
+    }
+    // Update delegation status
+    if (delegatingTo !== undefined) {
+      agent.delegatingTo = delegatingTo || undefined;
+    }
   }
 
   project.lastActivityAt = Date.now();
   return project;
+}
+
+// Update task for an existing session (for late task discovery)
+export function updateSessionTask(
+  sessionId: string,
+  projectPath: string,
+  task: string
+): void {
+  const project = getProject(projectPath);
+  if (!project) return;
+
+  const agents = project.agents as Map<string, Agent>;
+  const agent = agents.get(sessionId);
+  if (agent && !agent.task) {
+    agent.task = task;
+    agent.lastActivityAt = Date.now();
+  }
+}
+
+// Update current activity for a session (what they're doing right now)
+export function updateCurrentActivity(
+  sessionId: string,
+  projectPath: string,
+  activity: string
+): boolean {
+  const project = getProject(projectPath);
+  if (!project) return false;
+
+  const agents = project.agents as Map<string, Agent>;
+  const agent = agents.get(sessionId);
+  if (agent && agent.status === 'working') {
+    const changed = agent.currentActivity !== activity;
+    agent.currentActivity = activity;
+    agent.lastActivityAt = Date.now();
+    return changed;
+  }
+  return false;
 }
 
 // Get full state for client
@@ -341,14 +436,16 @@ export function getState(): ArgusState {
 
   return {
     projects: projectsObj,
+    completedWork: [...completedWork], // Copy array
     lastUpdated: Date.now(),
   };
 }
 
-// Clean up stale projects and agents
+// Clean up stale projects, agents, and completed work
 export function cleanupStale(): void {
   const projectThreshold = Date.now() - 30 * 60 * 1000; // 30 min for idle projects
   const agentThreshold = Date.now() - 5 * 60 * 1000; // 5 min for blocked agents
+  const completedThreshold = Date.now() - COMPLETED_WORK_TTL; // 5 min for completed items
 
   for (const [id, project] of projects) {
     // Clean up stale idle projects
@@ -369,5 +466,12 @@ export function cleanupStale(): void {
 
     // Update project status after cleanup
     updateProjectStatus(project);
+  }
+
+  // Clean up old completed work items (older than 5 minutes)
+  for (let i = completedWork.length - 1; i >= 0; i--) {
+    if (completedWork[i].completedAt < completedThreshold) {
+      completedWork.splice(i, 1);
+    }
   }
 }

@@ -59,7 +59,9 @@ export function handleEvent(event: ArgusEvent): void {
 
     case 'activity':
     default:
-      state.onActivity(sessionId, projectPath, projectName, event.modes);
+      // Extract delegation info from metadata if present
+      const delegatingTo = event.metadata?.delegatingTo as string | null | undefined;
+      state.onActivity(sessionId, projectPath, projectName, event.modes, undefined, delegatingTo);
       break;
   }
 }

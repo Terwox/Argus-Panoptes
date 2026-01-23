@@ -50,12 +50,14 @@ export interface Agent {
   type: 'main' | 'subagent';
   parentId?: string;
   status: AgentStatus;
-  task?: string;
+  task?: string;  // Initial task/prompt
+  currentActivity?: string;  // What they're doing right now (from recent tool calls/todos)
   question?: string;
   spawnedAt: number;
   lastActivityAt: number;
   workingTime?: number; // ms spent working (for "tired" state)
   modes?: SessionModes; // active modes (ralph, ultrawork, planning)
+  delegatingTo?: string; // Agent type being delegated to (for "Passing work to..." display)
 }
 
 export interface Project {
@@ -71,8 +73,19 @@ export interface Project {
   workingAgentCount?: number;
 }
 
+// Completed work item for the inbox
+export interface CompletedWorkItem {
+  id: string;
+  agentName: string;
+  task: string;
+  completedAt: number;
+  projectId: string;
+  projectName: string;
+}
+
 export interface ArgusState {
   projects: Record<string, Project>;
+  completedWork: CompletedWorkItem[];
   lastUpdated: number;
 }
 
