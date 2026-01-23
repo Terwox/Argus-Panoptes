@@ -375,6 +375,19 @@ export function checkPendingQuestions(): number {
           // Update the agent to blocked status, preserving what they were doing
           state.onAgentBlocked(sessionId, cwd, projectName, pendingQuestion, activity || undefined);
           updatedCount++;
+        } else {
+          // No pending question - check if we should unblock
+          // This handles the case where a question was answered but hooks didn't fire
+          const project = state.getProject(cwd);
+          if (project) {
+            const agents = project.agents as Map<string, { status: string }>;
+            const agent = agents.get(sessionId);
+            if (agent && agent.status === 'blocked') {
+              // Agent was blocked but no longer has a pending question - unblock them
+              state.onAgentUnblocked(sessionId, cwd, projectName);
+              updatedCount++;
+            }
+          }
         }
       } catch (e) {
         // Skip inaccessible files
