@@ -61,7 +61,7 @@ export const WANDER_BOUNDS = {
 /** Conductor position (as % of container) */
 export const CONDUCTOR_POSITION = {
   X_PCT: 0.10,
-  Y_PCT: 0.12,
+  Y_PCT: 0.42, // At 42%, even a 180px container has room for 75px bubble above
 } as const;
 
 /** Restlessness detection for desk relocation */

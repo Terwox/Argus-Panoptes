@@ -9,22 +9,21 @@
   import { onMount, onDestroy } from 'svelte';
   import type { Agent } from '../../../shared/types';
   import CuteBot from './CuteBot.svelte';
+  import {
+    CONDUCTOR_POSITION,
+    CONJURE_ANIMATIONS,
+    BOT_REACTIONS,
+    HAPPY_EMOJIS,
+    type ConjureAnimation,
+    type BotReaction,
+  } from '../lib/cuteWorldConfig';
 
   export let agents: Agent[];
   export let height: number = 280;
   export let fillHeight: boolean = false; // If true, fill parent container
 
-  // Conjuring animation types - 6 distinct styles
-  type ConjureAnimation = 'classic' | 'teleport' | 'factory' | 'inflate' | 'pixel' | 'spring';
-  const CONJURE_ANIMATIONS: ConjureAnimation[] = ['classic', 'teleport', 'factory', 'inflate', 'pixel', 'spring'];
-
   // Track last animation used for no-repeat logic
   let lastConjureAnimation: ConjureAnimation | null = null;
-
-  // Bot click reactions (spin removed - too flashy for random selection)
-  type BotReaction = 'wave' | 'bounce' | 'giggle' | 'emoji';
-  const BOT_REACTIONS: BotReaction[] = ['wave', 'bounce', 'giggle', 'emoji'];
-  const HAPPY_EMOJIS = ['🎵', '✨', '💫', '🌟', '💖', '🎶', '🌈', '⭐', '🎀', '🍀', '🌸', '😊', '🥰', '💕'];
 
   function getRandomReaction(): BotReaction {
     return BOT_REACTIONS[Math.floor(Math.random() * BOT_REACTIONS.length)];
@@ -127,8 +126,8 @@
   // EXPERIMENT: Organic desk building - bots find open space and build desks there
   // Only conductor has a fixed position; subagents find their own spot
   const BASE_DESK_POSITIONS: Record<string, { xPct: number; yPct: number }> = {
-    // Conductor at upper-left (bubble goes below into main area)
-    conductor: { xPct: 0.10, yPct: 0.12 },
+    // Conductor position from config (moved down to leave room for speech bubble above)
+    conductor: { xPct: CONDUCTOR_POSITION.X_PCT, yPct: CONDUCTOR_POSITION.Y_PCT },
   };
 
   // Dynamic desk positions - bots add their own desks when they spawn
@@ -935,12 +934,12 @@
       {@const bubbleLeft = Math.max(10, Math.min(containerWidth - bubbleWidth - 10, botCenterX - bubbleWidth / 2))}
       {@const tailOffset = botCenterX - bubbleLeft - bubbleWidth / 2}
       {@const estimatedBubbleHeight = isConductor ? 60 : 32}
-      <!-- Position bubble ABOVE bot by default; only below if near top edge -->
-      {@const isNearTop = botCenterY < containerHeight * 0.25}
-      {@const bubbleBelow = isNearTop}
-      {@const rawBubbleTop = bubbleBelow
-        ? bot.y + BOT_SIZE + 16
-        : bot.y - estimatedBubbleHeight - 16}
+      <!-- Position bubble ABOVE bot by default; only below if it would clip top edge -->
+      {@const abovePosition = bot.y - estimatedBubbleHeight - 16}
+      {@const belowPosition = bot.y + BOT_SIZE + 16}
+      {@const wouldClipTop = abovePosition < 5}
+      {@const bubbleBelow = wouldClipTop}
+      {@const rawBubbleTop = bubbleBelow ? belowPosition : abovePosition}
       {@const clampedBubbleTop = Math.max(5, Math.min(containerHeight - estimatedBubbleHeight - 5, rawBubbleTop))}
       <div
         class="absolute px-3 py-1.5 rounded-lg {isConductor ? 'text-sm' : bubbleTextClass}
