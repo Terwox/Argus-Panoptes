@@ -935,13 +935,12 @@
       {@const bubbleLeft = Math.max(10, Math.min(containerWidth - bubbleWidth - 10, botCenterX - bubbleWidth / 2))}
       {@const tailOffset = botCenterX - bubbleLeft - bubbleWidth / 2}
       {@const estimatedBubbleHeight = isConductor ? 60 : 32}
-      <!-- Position bubble based on bot's vertical position: top-half bots get bubble below, bottom-half above -->
-      <!-- Conductor always gets bubble below -->
-      {@const isTopHalf = !isConductor && botCenterY < containerHeight * 0.35}
-      {@const bubbleBelow = isConductor || isTopHalf}
+      <!-- Position bubble ABOVE bot by default; only below if near top edge -->
+      {@const isNearTop = botCenterY < containerHeight * 0.25}
+      {@const bubbleBelow = isNearTop}
       {@const rawBubbleTop = bubbleBelow
-        ? bot.y + BOT_SIZE + 12
-        : bot.y - estimatedBubbleHeight - 12}
+        ? bot.y + BOT_SIZE + 16
+        : bot.y - estimatedBubbleHeight - 16}
       {@const clampedBubbleTop = Math.max(5, Math.min(containerHeight - estimatedBubbleHeight - 5, rawBubbleTop))}
       <div
         class="absolute px-3 py-1.5 rounded-lg {isConductor ? 'text-sm' : bubbleTextClass}
@@ -965,30 +964,32 @@
         >
           {displayText}
         </div>
-        <!-- Bubble tail - points toward bot -->
+        <!-- Bubble tail - cute pointer toward bot -->
         {#if bubbleBelow}
-          <!-- Tail points UP (at top of bubble, pointing to bot above) -->
+          {@const tailX = Math.max(-bubbleWidth/2 + 20, Math.min(bubbleWidth/2 - 20, tailOffset))}
+          <!-- Tail points UP (bubble is below bot) -->
           <div
             class="absolute bottom-full w-0 h-0
-                   border-l-4 border-r-4 border-b-4 border-transparent
+                   border-l-[10px] border-r-[10px] border-b-[12px] border-transparent
                    {bot.agent.status === 'blocked'
-                     ? 'border-b-amber-500/40'
+                     ? 'border-b-amber-500/50'
                      : bot.agent.status === 'complete'
-                       ? 'border-b-green-500/40'
-                       : 'border-b-white/20'}"
-            style="left: calc(50% + {Math.max(-bubbleWidth/2 + 15, Math.min(bubbleWidth/2 - 15, tailOffset))}px); transform: translateX(-50%);"
+                       ? 'border-b-green-500/50'
+                       : 'border-b-white/30'}"
+            style="left: calc(50% + {tailX}px); transform: translateX(-50%);"
           />
         {:else}
-          <!-- Tail points DOWN (at bottom of bubble, pointing to bot below) -->
+          {@const tailX = Math.max(-bubbleWidth/2 + 20, Math.min(bubbleWidth/2 - 20, tailOffset))}
+          <!-- Tail points DOWN (bubble is above bot) - the ^ shape -->
           <div
             class="absolute top-full w-0 h-0
-                   border-l-4 border-r-4 border-t-4 border-transparent
+                   border-l-[10px] border-r-[10px] border-t-[12px] border-transparent
                    {bot.agent.status === 'blocked'
-                     ? 'border-t-amber-500/40'
+                     ? 'border-t-amber-500/50'
                      : bot.agent.status === 'complete'
-                       ? 'border-t-green-500/40'
-                       : 'border-t-white/20'}"
-            style="left: calc(50% + {Math.max(-bubbleWidth/2 + 15, Math.min(bubbleWidth/2 - 15, tailOffset))}px); transform: translateX(-50%);"
+                       ? 'border-t-green-500/50'
+                       : 'border-t-white/30'}"
+            style="left: calc(50% + {tailX}px); transform: translateX(-50%);"
           />
         {/if}
       </div>
