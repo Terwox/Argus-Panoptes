@@ -385,6 +385,18 @@ function mapHookToEvent(hookPayload) {
           },
         };
       }
+      // Background Bash commands spawn as "subprocess" bots
+      if (tool_name === 'Bash' && tool_input?.run_in_background) {
+        const taskDesc = tool_input.description || tool_input.command?.slice(0, 80) || 'Background task';
+        return {
+          ...base,
+          type: 'agent_spawn',
+          agentType: 'background',
+          agentId: `bg-${Date.now()}`,
+          agentName: 'background-task',
+          task: taskDesc,
+        };
+      }
       // Other tool uses are just activity
       return {
         ...base,
@@ -401,6 +413,18 @@ function mapHookToEvent(hookPayload) {
           metadata: {
             ...base.metadata,
             delegatingTo: null, // Clear delegation
+          },
+        };
+      }
+      // Detect TaskOutput completion for background tasks
+      if (tool_name === 'TaskOutput' && tool_input?.task_id) {
+        return {
+          ...base,
+          type: 'activity',
+          metadata: {
+            ...base.metadata,
+            tool_name,
+            backgroundTaskComplete: tool_input.task_id,
           },
         };
       }

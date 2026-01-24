@@ -122,6 +122,17 @@ setInterval(() => {
   state.cleanupStale();
 }, 5 * 60 * 1000);
 
+// Refresh project statuses every 30 seconds for idle detection
+// This catches sessions that went silent (e.g., VS Code closed without session_end)
+setInterval(() => {
+  state.refreshAllProjectStatuses();
+  // Broadcast updated state so UI reflects idle status
+  broadcast({
+    type: 'state_update',
+    payload: state.getState(),
+  });
+}, 30 * 1000);
+
 // Check for pending AskUserQuestion calls every 10 seconds
 // This catches cases where the AskUserQuestion tool doesn't trigger hooks
 setInterval(() => {

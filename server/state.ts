@@ -21,6 +21,12 @@ const completedWork: CompletedWorkItem[] = [];
 const MAX_COMPLETED_ITEMS = 20;
 const COMPLETED_WORK_TTL = 5 * 60 * 1000; // 5 minutes
 
+// Idle detection - if no activity for this long, consider the session idle
+const IDLE_TIMEOUT = 2 * 60 * 1000; // 2 minutes
+
+// Track background task IDs to their shell IDs for completion detection
+const backgroundTaskShellIds = new Map<string, string>(); // agentId -> shellId
+
 // DESIGN PRINCIPLE: NO DUPLICATE PROJECTS
 // Normalize path for consistent project IDs (case-insensitive on Windows)
 function normalizePath(path: string): string {
@@ -68,12 +74,17 @@ export function getProject(path: string): Project | undefined {
 // Update project status based on agent states
 function updateProjectStatus(project: Project): void {
   const agents = project.agents as Map<string, Agent>;
+  const now = Date.now();
   let hasBlocked = false;
   let hasWorking = false;
 
   for (const agent of agents.values()) {
+    // Check if agent is actively working or just stale
+    const isStale = now - agent.lastActivityAt > IDLE_TIMEOUT;
+
     if (agent.status === 'blocked') hasBlocked = true;
-    if (agent.status === 'working') hasWorking = true;
+    // Only count as "working" if we've heard from them recently
+    if (agent.status === 'working' && !isStale) hasWorking = true;
   }
 
   const newStatus: ProjectStatus = hasBlocked
@@ -89,7 +100,10 @@ function updateProjectStatus(project: Project): void {
   }
 
   project.status = newStatus;
-  project.lastActivityAt = Date.now();
+  // Only update lastActivityAt if we're not going idle due to staleness
+  if (newStatus !== 'idle') {
+    project.lastActivityAt = Date.now();
+  }
 }
 
 // Session started
@@ -148,23 +162,26 @@ export function onSessionEnd(
   return project;
 }
 
-// Agent spawned (subagent)
+// Agent spawned (subagent or background task)
 export function onAgentSpawn(
   sessionId: string,
   projectPath: string,
   projectName: string,
   agentId: string | undefined,
   agentName: string | undefined,
-  task: string | undefined
+  task: string | undefined,
+  agentType?: string,  // 'subagent' or 'background'
+  shellId?: string     // For background tasks, the shell ID to track completion
 ): Project {
   const project = getOrCreateProject(projectPath, projectName);
   const agents = project.agents as Map<string, Agent>;
 
   const id = agentId || `sub-${Date.now()}`;
+  const type = agentType === 'background' ? 'background' : 'subagent';
   const subagent: Agent = {
     id,
-    name: agentName,
-    type: 'subagent',
+    name: agentName || (type === 'background' ? 'background-task' : undefined),
+    type: type as 'main' | 'subagent' | 'background',
     parentId: sessionId,
     status: 'working',
     task,
@@ -172,6 +189,11 @@ export function onAgentSpawn(
     lastActivityAt: Date.now(),
   };
   agents.set(id, subagent);
+
+  // Track shell ID for background task completion detection
+  if (type === 'background' && shellId) {
+    backgroundTaskShellIds.set(id, shellId);
+  }
 
   updateProjectStatus(project);
   return project;
@@ -381,6 +403,8 @@ export function updateSessionTask(
 }
 
 // Update current activity for a session (what they're doing right now)
+// NOTE: Only updates lastActivityAt when activity actually changes
+// This prevents polling from keeping "stale" sessions artificially alive
 export function updateCurrentActivity(
   sessionId: string,
   projectPath: string,
@@ -394,10 +418,63 @@ export function updateCurrentActivity(
   if (agent && agent.status === 'working') {
     const changed = agent.currentActivity !== activity;
     agent.currentActivity = activity;
-    agent.lastActivityAt = Date.now();
+    // Only update lastActivityAt if activity actually changed
+    // This allows idle detection to work for sessions that stopped working
+    if (changed) {
+      agent.lastActivityAt = Date.now();
+    }
     return changed;
   }
   return false;
+}
+
+// Update last user message for a project
+export function updateLastUserMessage(
+  projectPath: string,
+  message: string
+): boolean {
+  const project = getProject(projectPath);
+  if (!project) return false;
+
+  const changed = project.lastUserMessage !== message;
+  project.lastUserMessage = message;
+  return changed;
+}
+
+// Background task completion - triggered when TaskOutput is read
+export function onBackgroundTaskComplete(
+  projectPath: string,
+  taskId: string  // The shell ID from TaskOutput tool
+): Project | undefined {
+  const project = getProject(projectPath);
+  if (!project) return undefined;
+
+  const agents = project.agents as Map<string, Agent>;
+
+  // Find the background agent by shell ID
+  for (const [agentId, shellId] of backgroundTaskShellIds) {
+    if (shellId === taskId) {
+      const agent = agents.get(agentId);
+      if (agent && agent.type === 'background' && agent.status === 'working') {
+        agent.status = 'complete';
+        agent.lastActivityAt = Date.now();
+        // Add to completed work inbox
+        addCompletedWorkItem(agent.name, agent.task, project.id, project.name);
+        backgroundTaskShellIds.delete(agentId);
+        updateProjectStatus(project);
+        return project;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+// Force refresh of project statuses (for periodic idle detection)
+export function refreshAllProjectStatuses(): void {
+  for (const project of projects.values()) {
+    updateProjectStatus(project);
+  }
 }
 
 // Get full state for client

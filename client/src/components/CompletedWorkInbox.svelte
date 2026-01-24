@@ -8,14 +8,7 @@
 
   export let items: CompletedWorkItem[] = [];
 
-  // Time ago formatter
-  function timeAgo(timestamp: number): string {
-    const seconds = Math.floor((Date.now() - timestamp) / 1000);
-    if (seconds < 60) return `${seconds}s ago`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    return `${Math.floor(minutes / 60)}h ago`;
-  }
+  // DESIGN: NO VISIBLE TIMERS - no "47s ago" anxiety counters
 
   // Clean agent name (remove prefixes)
   function cleanName(name: string): string {
@@ -44,7 +37,7 @@
 </script>
 
 <!-- Card-style container matching ProjectCard -->
-<div class="rounded-xl border-2 border-green-500/30 bg-green-500/5 p-4 transition-all duration-200 flex flex-col h-full">
+<div class="rounded-xl border-2 border-green-500/30 bg-green-500/5 p-4 transition-all duration-200 flex flex-col h-full min-h-0">
   <!-- Header -->
   <div class="flex items-center justify-between mb-3">
     <h3 class="font-semibold text-lg flex items-center gap-2">
@@ -81,9 +74,8 @@
                 <span class="text-xs font-medium text-green-400">
                   {cleanName(item.agentName)}
                 </span>
-                <span class="text-xs text-gray-500">
-                  {timeAgo(item.completedAt)}
-                </span>
+                <!-- DESIGN: NO VISIBLE TIMERS - no anxiety -->
+                <span class="text-xs text-gray-500">✓</span>
               </div>
               <p class="text-sm text-gray-300 mt-0.5 leading-snug">
                 {truncate(item.task)}

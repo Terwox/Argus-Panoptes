@@ -5,50 +5,30 @@
   import BlockedQuestion from './BlockedQuestion.svelte';
   import CuteWorld from './CuteWorld.svelte';
   import { bounce } from '../lib/bounce';
-  import { cuteMode } from '../stores/state';
-  import { onMount, onDestroy } from 'svelte';
+  import { cuteMode, focusedProject, archiveProject, selectedProject } from '../stores/state';
+  import { toasts } from '../stores/toast';
 
   export let project: Project;
   export let detailed: boolean = false;
+  export let selected: boolean = false;
+  export let dimmed: boolean = false;
 
   $: agents = Object.values(project.agents);
   $: blockedAgent = agents.find((a) => a.status === 'blocked');
   $: isBlocked = project.status === 'blocked';
   $: isWorking = project.status === 'working';
   $: isFake = project.id.startsWith('fake-');
+  $: isFocused = $focusedProject === project.id;
 
   // DESIGN PRINCIPLES:
   // - NO anxiety-inducing elements (no timers on blocked, no pulsing, no urgency)
+  // - NO VISIBLE TIMERS - no "47s ago" counters
   // - Help users calmly switch context and play whack-a-mole with projects
   // - This is NOT a GO-GO-GO dashboard
 
-  // Time tracking for UX - only show "last activity" for working projects
-  let now = Date.now();
-  let interval: ReturnType<typeof setInterval>;
-
-  onMount(() => {
-    interval = setInterval(() => {
-      now = Date.now();
-    }, 1000);
-  });
-
-  onDestroy(() => {
-    if (interval) clearInterval(interval);
-  });
-
-  // Format time duration for display (working projects only)
-  function formatDuration(ms: number): string {
-    const seconds = Math.floor(ms / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m`;
-    const hours = Math.floor(minutes / 60);
-    return `${hours}h ${minutes % 60}m`;
-  }
-
-  $: lastActivityDuration = now - project.lastActivityAt;
-
-  $: borderColor = isBlocked
+  $: borderColor = selected
+    ? 'border-blue-500'
+    : isBlocked
     ? 'border-blocked/50'
     : isWorking
       ? 'border-working/30'
@@ -60,18 +40,55 @@
       ? 'bg-working/5'
       : 'bg-white/[0.02]';
 
-  function handleBounce() {
+  $: opacityClass = dimmed
+    ? (isBlocked ? 'opacity-50' : 'opacity-30')
+    : '';
+
+  async function handleBounce() {
+    // Copy question to clipboard if blocked
+    if (isBlocked && blockedAgent?.question && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(blockedAgent.question);
+        toasts.addToast('Question copied to clipboard', 'success');
+      } catch (err) {
+        console.error('Failed to copy to clipboard:', err);
+      }
+    }
     bounce(project.path, blockedAgent?.question);
+  }
+
+  function toggleFocus() {
+    if (isFocused) {
+      $focusedProject = null;
+    } else {
+      $focusedProject = project.id;
+    }
+  }
+
+  function handleArchive() {
+    if (!isBlocked) {
+      archiveProject(project.id);
+    }
+  }
+
+  function handleCardClick() {
+    selectedProject.set(project.id);
   }
 </script>
 
 <div
-  class="rounded-xl border-2 {borderColor} {bgColor} p-4 transition-all duration-200 flex flex-col
+  class="rounded-xl border-2 {borderColor} {bgColor} {opacityClass} p-4 transition-all duration-200 flex flex-col
+         hover:border-white/30 hover:bg-white/[0.04]
+         {selected ? 'ring-2 ring-blue-500' : ''}
          {isBlocked ? 'md:col-span-2 lg:col-span-2' : ''}"
+  on:click={handleCardClick}
+  role="button"
+  tabindex="0"
+  on:keydown={(e) => e.key === 'Enter' && handleCardClick()}
 >
   <!-- Header -->
   <div class="flex items-start justify-between mb-3">
-    <div>
+    <div class="flex-1">
       <h3 class="font-semibold text-lg flex items-center gap-2">
         {project.name}
         {#if isBlocked}
@@ -88,8 +105,8 @@
             {displayText.slice(0, 40)}{displayText.length > 40 ? '...' : ''}
           </span>
         {:else if isWorking}
+          <!-- DESIGN: NO VISIBLE TIMERS - no anxiety -->
           <span class="text-working text-sm font-normal">Active</span>
-          <span class="text-working/60 text-xs font-normal">(last: {formatDuration(lastActivityDuration)})</span>
         {:else}
           <span class="text-gray-500 text-sm font-normal">Idle</span>
         {/if}
@@ -97,20 +114,51 @@
       <p class="text-xs text-gray-500 truncate max-w-[300px]" title={project.path}>
         {project.path}
       </p>
+      {#if project.lastUserMessage && !isBlocked}
+        <p class="text-xs text-gray-600 mt-1 truncate max-w-[300px]" title={project.lastUserMessage}>
+          {project.lastUserMessage.slice(0, 60)}{project.lastUserMessage.length > 60 ? '...' : ''}
+        </p>
+      {/if}
     </div>
 
-    {#if !isFake}
-      <button
-        class="px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1.5
-               {isBlocked
-                 ? 'bg-blocked text-black font-medium hover:bg-blocked/90'
-                 : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-300'}"
-        on:click={handleBounce}
-      >
-        <span>→</span>
-        {isBlocked ? 'Open in VS Code' : 'VS Code'}
-      </button>
-    {/if}
+    <div class="flex items-center gap-2">
+      {#if !isFake}
+        <!-- Focus mode button -->
+        <button
+          class="p-1.5 text-sm rounded-lg transition-colors
+                 {isFocused
+                   ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
+                   : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-300'}"
+          on:click={toggleFocus}
+          title={isFocused ? 'Exit Focus Mode' : 'Focus on this project'}
+        >
+          {isFocused ? '⊙' : '○'}
+        </button>
+
+        <!-- Archive button (hide for blocked projects) -->
+        {#if !isBlocked}
+          <button
+            class="p-1.5 text-sm rounded-lg transition-colors bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-300"
+            on:click={handleArchive}
+            title="Archive this project"
+          >
+            ✕
+          </button>
+        {/if}
+
+        <!-- VS Code button -->
+        <button
+          class="px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1.5
+                 {isBlocked
+                   ? 'bg-blocked text-black font-medium hover:bg-blocked/90'
+                   : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-300'}"
+          on:click={handleBounce}
+        >
+          <span>→</span>
+          {isBlocked ? 'Open in VS Code' : 'VS Code'}
+        </button>
+      {/if}
+    </div>
   </div>
 
   <!-- Agent display -->

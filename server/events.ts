@@ -35,7 +35,8 @@ export function handleEvent(event: ArgusEvent): void {
         projectName,
         event.agentId,
         event.agentName,
-        event.task
+        event.task,
+        event.agentType  // 'subagent' or 'background'
       );
       break;
 
@@ -62,6 +63,12 @@ export function handleEvent(event: ArgusEvent): void {
       // Extract delegation info from metadata if present
       const delegatingTo = event.metadata?.delegatingTo as string | null | undefined;
       state.onActivity(sessionId, projectPath, projectName, event.modes, undefined, delegatingTo);
+
+      // Check for background task completion (TaskOutput read)
+      const backgroundTaskComplete = event.metadata?.backgroundTaskComplete as string | undefined;
+      if (backgroundTaskComplete) {
+        state.onBackgroundTaskComplete(projectPath, backgroundTaskComplete);
+      }
       break;
   }
 }

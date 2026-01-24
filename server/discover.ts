@@ -335,6 +335,42 @@ function extractTaskFromTranscript(transcriptPath: string): string | null {
 }
 
 /**
+ * Extract the most recent user message from a transcript
+ */
+function extractLastUserMessage(transcriptPath: string): string | null {
+  try {
+    const content = readFileSync(transcriptPath, 'utf8');
+    const lines = content.trim().split('\n');
+
+    // Read from end to find the most recent user message
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(lines[i]) as TranscriptEntry;
+        if (entry.type === 'user' && entry.message?.content) {
+          const msgContent = entry.message.content;
+          // Content might be string or array
+          const text = typeof msgContent === 'string'
+            ? msgContent
+            : Array.isArray(msgContent)
+              ? msgContent.find((b: { type: string; text?: string }) => b.type === 'text')?.text || ''
+              : '';
+          if (text) {
+            // Truncate to 100 chars
+            const truncated = text.slice(0, 100);
+            return truncated.length < text.length ? truncated + '...' : truncated;
+          }
+        }
+      } catch (e) {
+        // Skip malformed lines
+      }
+    }
+  } catch (e) {
+    // Ignore read errors
+  }
+  return null;
+}
+
+/**
  * Check all active sessions for pending AskUserQuestion calls
  * Also updates tasks and current activity for sessions
  * Returns the number of sessions that were updated
@@ -391,6 +427,13 @@ export function checkPendingQuestions(): number {
         if (activity) {
           const activityChanged = state.updateCurrentActivity(sessionId, cwd, activity);
           if (activityChanged) updatedCount++;
+        }
+
+        // Extract last user message
+        const lastUserMessage = extractLastUserMessage(transcriptPath);
+        if (lastUserMessage) {
+          const messageChanged = state.updateLastUserMessage(cwd, lastUserMessage);
+          if (messageChanged) updatedCount++;
         }
 
         const pendingQuestion = checkPendingAskUserQuestion(transcriptPath);

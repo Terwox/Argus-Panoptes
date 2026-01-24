@@ -5,8 +5,9 @@
  */
 
 import { writable, derived, get } from 'svelte/store';
-import type { ArgusState, Project, WSMessage } from '../../../shared/types.js';
+import type { ArgusState, Project, ProjectStatus, WSMessage } from '../../../shared/types.js';
 import { generateFakeProjects, refreshFakeActivities, fetchGitActivities } from '../lib/fakeProjects.js';
+import { requestNotificationPermission, notifyBlockedProject, clearNotificationState } from '../lib/notifications.js';
 
 // WebSocket connection state
 export const connected = writable(false);
@@ -45,6 +46,42 @@ export const fakeMode = writable<boolean>(getFakeDefault());
 // Store for fake projects (refreshed periodically)
 export const fakeProjects = writable<Project[]>([]);
 
+// Selection state: currently selected project ID (for keyboard nav)
+export const selectedProject = writable<string | null>(null);
+
+// Focus mode: show only this project ID
+export const focusedProject = writable<string | null>(null);
+
+// Archived projects: synced with localStorage
+function getArchivedFromStorage(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  const stored = localStorage.getItem('argus-archived');
+  return stored ? new Set(JSON.parse(stored)) : new Set();
+}
+
+export const archivedProjects = writable<Set<string>>(getArchivedFromStorage());
+
+// Sync to localStorage on change
+archivedProjects.subscribe($archived => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('argus-archived', JSON.stringify([...$archived]));
+  }
+});
+
+export function archiveProject(id: string) {
+  archivedProjects.update(set => { set.add(id); return new Set(set); });
+}
+
+export function unarchiveProject(id: string) {
+  archivedProjects.update(set => { set.delete(id); return new Set(set); });
+}
+
+// Show archived projects toggle
+export const showArchived = writable<boolean>(false);
+
+// Track which projects have already triggered notifications (prevent duplicates)
+export const notifiedBlocked = writable<Set<string>>(new Set());
+
 // Derived: sorted projects array (real projects only)
 export const realProjects = derived(state, ($state) => {
   const projects = Object.values($state.projects);
@@ -73,17 +110,30 @@ export const realProjects = derived(state, ($state) => {
   });
 });
 
-// Derived: sorted projects including fake ones when enabled
+// Derived: sorted projects including fake ones when enabled, filtering archived
 export const sortedProjects = derived(
-  [realProjects, fakeProjects, fakeMode],
-  ([$realProjects, $fakeProjects, $fakeMode]) => {
-    // Only add fakes if <3 real projects and fake mode is enabled (fill to 3 total)
-    if (!$fakeMode || $realProjects.length >= 3) {
-      return $realProjects;
+  [realProjects, fakeProjects, fakeMode, archivedProjects, showArchived],
+  ([$realProjects, $fakeProjects, $fakeMode, $archivedProjects, $showArchived]) => {
+    // Filter out archived projects (unless showArchived is true or they become blocked)
+    const filteredReal = $realProjects.filter(p => {
+      const isArchived = $archivedProjects.has(p.id);
+      if (!isArchived) return true; // Not archived, always show
+      if ($showArchived) return true; // Show archived view enabled
+      if (p.status === 'blocked') {
+        // Auto-unarchive blocked projects
+        unarchiveProject(p.id);
+        return true;
+      }
+      return false; // Hidden archived project
+    });
+
+    // Only add fakes if <3 filtered real projects and fake mode is enabled
+    if (!$fakeMode || filteredReal.length >= 3) {
+      return filteredReal;
     }
 
     // Real projects first, then fake ones
-    return [...$realProjects, ...$fakeProjects];
+    return [...filteredReal, ...$fakeProjects];
   }
 );
 
@@ -251,6 +301,48 @@ fakeMode.subscribe(async ($fakeMode) => {
     if (fakeRefreshInterval) {
       clearInterval(fakeRefreshInterval);
       fakeRefreshInterval = null;
+    }
+  }
+});
+
+// Notification system: watch for blocked projects
+let previousProjectStates = new Map<string, ProjectStatus>();
+let hasRequestedPermission = false;
+
+state.subscribe(async ($state) => {
+  const projects = Object.values($state.projects);
+
+  for (const project of projects) {
+    const previousStatus = previousProjectStates.get(project.id);
+    const currentStatus = project.status;
+
+    // Check if project just became blocked
+    if (currentStatus === 'blocked' && previousStatus !== 'blocked') {
+      // Request permission on first blocked project (if not already done)
+      if (!hasRequestedPermission) {
+        hasRequestedPermission = true;
+        await requestNotificationPermission();
+      }
+
+      // Show notification for newly blocked project
+      notifyBlockedProject(project);
+    }
+
+    // Check if project unblocked
+    if (currentStatus !== 'blocked' && previousStatus === 'blocked') {
+      clearNotificationState(project.id);
+    }
+
+    // Update tracked state
+    previousProjectStates.set(project.id, currentStatus);
+  }
+
+  // Clean up tracking for deleted projects
+  const currentProjectIds = new Set(projects.map(p => p.id));
+  for (const [id] of previousProjectStates) {
+    if (!currentProjectIds.has(id)) {
+      previousProjectStates.delete(id);
+      clearNotificationState(id);
     }
   }
 });

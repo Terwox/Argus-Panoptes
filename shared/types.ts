@@ -21,7 +21,7 @@ export interface ArgusEvent {
   projectName: string; // derived from path
   agentId?: string;
   agentName?: string;
-  agentType?: 'main' | 'subagent';
+  agentType?: 'main' | 'subagent' | 'background';
   parentAgentId?: string; // for subagents
   question?: string; // if blocked
   task?: string; // current task description
@@ -47,7 +47,7 @@ export interface SessionModes {
 export interface Agent {
   id: string;
   name?: string;
-  type: 'main' | 'subagent';
+  type: 'main' | 'subagent' | 'background';
   parentId?: string;
   status: AgentStatus;
   task?: string;  // Initial task/prompt
@@ -68,6 +68,7 @@ export interface Project {
   lastActivityAt: number;
   blockedSince?: number;
   agents: Map<string, Agent> | Record<string, Agent>; // Map in server, Record in JSON
+  lastUserMessage?: string; // Last message the user sent to Claude (truncated to 100 chars)
   // Derived for UI
   blockedAgentCount?: number;
   workingAgentCount?: number;
