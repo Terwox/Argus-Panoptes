@@ -713,9 +713,35 @@ Centralized configuration for bot simulation physics, spacing, and animations.
 | FRUSTRATION_STDDEV_MS | 5000 | Gaussian stddev |
 | FRUSTRATION_MIN_MS | 5000 | Minimum patience floor |
 
+#### Click Reactions
+| Reaction | Description |
+|----------|-------------|
+| wave | Side-to-side rotation |
+| bounce | Vertical hop |
+| giggle | Shake + micro-rotation |
+| emoji | Random emoji floats up |
+| spin | 360° Z-axis rotation |
+| flip | 360° Y-axis 3D flip |
+| somersault | 360° X-axis 3D rotation |
+
 ---
 
-## Phase 9: CuteWorld Visual Test Suite
+## Phase 10: Server-Side Timing Configuration
+
+All timing constants in `server/state.ts`:
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| IDLE_TIMEOUT | 2 min | Working agent → idle (no activity) |
+| DONE_TIMEOUT | 60s | Completed agents removed from display |
+| COMPLETED_WORK_TTL | 5 min | Inbox items auto-cleanup |
+| MAX_COMPLETED_ITEMS | 20 | Max inbox items retained |
+| IDLE_PROJECT_TTL | 30 min | Idle projects removed |
+| BLOCKED_AGENT_TTL | 5 min | Stale blocked agents removed |
+
+---
+
+## Phase 11: CuteWorld Visual Test Suite
 
 ### Manual Test Checklist
 

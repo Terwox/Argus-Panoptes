@@ -15,14 +15,34 @@ import type {
   CompletedWorkItem,
 } from '../shared/types.js';
 
+// ============================================================
+// TIMING CONFIGURATION
+// All timing constants that control agent/project lifecycle
+// ============================================================
+
+/** How long before a working agent is considered idle (no activity) */
+const IDLE_TIMEOUT = 2 * 60 * 1000; // 2 minutes
+
+/** How long completed agents/background tasks stay visible before cleanup */
+const DONE_TIMEOUT = 60 * 1000; // 60 seconds
+
+/** How long completed work items stay in the inbox */
+const COMPLETED_WORK_TTL = 5 * 60 * 1000; // 5 minutes
+
+/** Max completed work items to retain */
+const MAX_COMPLETED_ITEMS = 20;
+
+/** How long idle projects stay before removal */
+const IDLE_PROJECT_TTL = 30 * 60 * 1000; // 30 minutes
+
+/** How long stale blocked agents stay before cleanup */
+const BLOCKED_AGENT_TTL = 5 * 60 * 1000; // 5 minutes
+
+// ============================================================
+
 // In-memory state
 const projects = new Map<string, Project>();
 const completedWork: CompletedWorkItem[] = [];
-const MAX_COMPLETED_ITEMS = 20;
-const COMPLETED_WORK_TTL = 5 * 60 * 1000; // 5 minutes
-
-// Idle detection - if no activity for this long, consider the session idle
-const IDLE_TIMEOUT = 2 * 60 * 1000; // 2 minutes
 
 // Track background task IDs to their shell IDs for completion detection
 const backgroundTaskShellIds = new Map<string, string>(); // agentId -> shellId
@@ -520,9 +540,11 @@ export function getState(): ArgusState {
 
 // Clean up stale projects, agents, and completed work
 export function cleanupStale(): void {
-  const projectThreshold = Date.now() - 30 * 60 * 1000; // 30 min for idle projects
-  const agentThreshold = Date.now() - 5 * 60 * 1000; // 5 min for blocked agents
-  const completedThreshold = Date.now() - COMPLETED_WORK_TTL; // 5 min for completed items
+  const now = Date.now();
+  const projectThreshold = now - IDLE_PROJECT_TTL;
+  const blockedThreshold = now - BLOCKED_AGENT_TTL;
+  const doneThreshold = now - DONE_TIMEOUT;
+  const completedThreshold = now - COMPLETED_WORK_TTL;
 
   for (const [id, project] of projects) {
     // Clean up stale idle projects
@@ -531,12 +553,19 @@ export function cleanupStale(): void {
       continue;
     }
 
-    // Clean up stale blocked main agents within active projects
     const agents = project.agents as Map<string, Agent>;
     for (const [agentId, agent] of agents) {
+      // Clean up stale blocked main agents
       if (agent.type === 'main' &&
           agent.status === 'blocked' &&
-          agent.lastActivityAt < agentThreshold) {
+          agent.lastActivityAt < blockedThreshold) {
+        agents.delete(agentId);
+        continue;
+      }
+
+      // Clean up completed agents/background tasks after DONE_TIMEOUT (60s)
+      if (agent.status === 'complete' &&
+          agent.lastActivityAt < doneThreshold) {
         agents.delete(agentId);
       }
     }
@@ -545,7 +574,7 @@ export function cleanupStale(): void {
     updateProjectStatus(project);
   }
 
-  // Clean up old completed work items (older than 5 minutes)
+  // Clean up old completed work items
   for (let i = completedWork.length - 1; i >= 0; i--) {
     if (completedWork[i].completedAt < completedThreshold) {
       completedWork.splice(i, 1);
