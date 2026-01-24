@@ -1002,7 +1002,8 @@
              {bot.reaction === 'wave' ? 'animate-bot-wave' : ''}
              {bot.reaction === 'bounce' ? 'animate-bot-bounce' : ''}
              {bot.reaction === 'spin' ? 'animate-bot-spin' : ''}
-             {bot.reaction === 'giggle' ? 'animate-bot-giggle' : ''}"
+             {bot.reaction === 'giggle' ? 'animate-bot-giggle' : ''}
+             {bot.reaction === 'flip' ? 'animate-bot-flip' : ''}"
       style="
         left: {bot.x}px;
         top: {bot.y}px;
@@ -1117,6 +1118,11 @@
     80% { transform: translateX(2px) rotate(1deg); }
   }
 
+  @keyframes bot-flip {
+    0% { transform: perspective(400px) rotateY(0deg); }
+    100% { transform: perspective(400px) rotateY(360deg); }
+  }
+
   @keyframes emoji-float {
     0% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
     100% { opacity: 0; transform: translateX(-50%) translateY(-30px) scale(1.3); }
@@ -1136,6 +1142,10 @@
 
   .animate-bot-giggle {
     animation: bot-giggle 0.4s ease-in-out;
+  }
+
+  .animate-bot-flip {
+    animation: bot-flip 0.6s ease-in-out;
   }
 
   .animate-emoji-float {

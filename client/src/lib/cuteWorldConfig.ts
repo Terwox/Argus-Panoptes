@@ -128,6 +128,6 @@ export const CONJURE_ANIMATIONS = [
 export type ConjureAnimation = typeof CONJURE_ANIMATIONS[number];
 
 /** Available click reaction types */
-export const BOT_REACTIONS = ['wave', 'bounce', 'giggle', 'emoji'] as const;
+export const BOT_REACTIONS = ['wave', 'bounce', 'giggle', 'emoji', 'spin', 'flip'] as const;
 
 export type BotReaction = typeof BOT_REACTIONS[number];
