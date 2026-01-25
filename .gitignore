@@ -26,9 +26,7 @@ hook-debug.log
 # oh-my-claudecode plugin state (session-specific, not shareable)
 .omc/
 
-# Visual testing screenshots (generated during development, not source)
-.sisyphus/*.png
-.sisyphus/visual-tests/
+# Visual testing screenshots (local only, not .sisyphus which is tracked)
 compact-mode-test.png
 
 # Spec documents (local planning artifacts, not source code)
