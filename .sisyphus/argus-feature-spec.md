@@ -778,4 +778,67 @@ Run at http://localhost:5173 with fake mode (🎭) enabled.
 
 ---
 
+## Phase 12: Intelligent Project Status ("Done" vs "Idle")
+
+### Feature: Show Completed Tasks as "Done"
+
+**One-line description:** When a project has no background tasks and no active subagents after being unblocked, show it as "Done" with the completed task description.
+
+**User story:**
+> As a user monitoring multiple projects, I want to see which projects have completed their work (vs just idling), so I can quickly identify finished tasks and review what was accomplished.
+
+**Job-to-be-done:** Distinguish between "waiting for more work" and "completed a task and resting."
+
+**Acceptance criteria:**
+- [ ] Project shows "Done" status (instead of "Working") when:
+  1. It was previously blocked (waiting for input)
+  2. User responded and work resumed
+  3. No background tasks running
+  4. No subagents currently active
+  5. Last activity was a completion event
+- [ ] Done status includes the task/question that was completed
+- [ ] Done status persists until new activity starts or project becomes idle (30+ min)
+- [ ] Visual distinction: green checkmark or "✓ Done" badge
+- [ ] Speech bubble shows completed task description (truncated)
+
+**State transitions:**
+```
+blocked → working (user responded)
+working → done (no tasks, no subagents, completion event)
+done → working (new activity)
+done → idle (30 min timeout)
+```
+
+**Visual sketch:**
+```
++----------------------------------+
+| my-project        [✓ Done]       |
+| "Implemented the login feature"  |  <-- shows what was completed
+|                                  |
+|  [Conductor]                     |
+|     ✓ "All done!"               |
++----------------------------------+
+```
+
+**Server-side tracking:**
+- Track `lastCompletionTask: string` - the task that was just finished
+- Track `completedAt: number` - timestamp of completion
+- On `Stop` event with no pending work → mark as done
+- Clear done status when new `activity` event arrives
+
+**Edge cases:**
+- Multiple completions in sequence: show most recent
+- Subagent completes but conductor continues: not "done" yet
+- Background task finishes: check if conductor also done
+- User reopens project: clear done status, show as working
+
+**Dependencies:**
+- Requires accurate tracking of:
+  - Background task count (from transcript or hook events)
+  - Active subagent count
+  - Last tool use / completion status
+- May need `Stop` event analysis to detect completion vs pause
+
+---
+
 *End of specification*

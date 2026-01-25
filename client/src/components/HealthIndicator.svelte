@@ -68,6 +68,8 @@
   class="relative flex items-center gap-2 text-sm"
   on:mouseenter={() => (showTooltip = true)}
   on:mouseleave={() => (showTooltip = false)}
+  role="status"
+  aria-live="polite"
 >
   <!-- Colored dot indicator -->
   <div class="relative">

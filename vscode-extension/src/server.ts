@@ -6,9 +6,11 @@
  */
 
 import { serve } from '@hono/node-server';
+import { createNodeWebSocket } from '@hono/node-ws';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Server } from 'http';
+import type { WSContext } from 'hono/ws';
 
 // Import types from shared
 interface ArgusState {
@@ -64,7 +66,7 @@ export class ArgusServer {
     completedWork: [],
     lastUpdated: 0,
   };
-  private wsClients: Set<WebSocket> = new Set();
+  private wsClients: Set<WSContext> = new Set();
   private stateChangeCallbacks: StateChangeCallback[] = [];
 
   constructor(port: number = 4242) {
@@ -73,6 +75,7 @@ export class ArgusServer {
 
   async start(): Promise<void> {
     const app = new Hono();
+    const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
     // CORS for development
     app.use('*', cors());
@@ -80,10 +83,21 @@ export class ArgusServer {
     // Health check
     app.get('/health', (c) => c.json({ status: 'ok' }));
 
-    // Get current state
+    // Get current state (both endpoints for compatibility)
+    app.get('/state', (c) => c.json(this.state));
     app.get('/api/state', (c) => c.json(this.state));
 
-    // Receive events from hook script
+    // Receive events from hook script (both endpoints for compatibility)
+    app.post('/events', async (c) => {
+      try {
+        const event = await c.req.json();
+        this.handleEvent(event);
+        return c.json({ ok: true });
+      } catch (error) {
+        console.error('[Argus Server] Error handling event:', error);
+        return c.json({ error: 'Invalid event' }, 400);
+      }
+    });
     app.post('/api/event', async (c) => {
       try {
         const event = await c.req.json();
@@ -95,14 +109,45 @@ export class ArgusServer {
       }
     });
 
+    // WebSocket /ws - Real-time updates
+    app.get(
+      '/ws',
+      upgradeWebSocket(() => ({
+        onOpen: (_event, ws) => {
+          this.wsClients.add(ws);
+          // Send current state on connect
+          ws.send(JSON.stringify({
+            type: 'state_update',
+            payload: this.state,
+          }));
+        },
+        onMessage: (event, ws) => {
+          // Handle ping/pong
+          try {
+            const msg = JSON.parse(event.data.toString());
+            if (msg.type === 'ping') {
+              ws.send(JSON.stringify({ type: 'pong', payload: null }));
+            }
+          } catch (e) {
+            // Ignore invalid messages
+          }
+        },
+        onClose: (_event, ws) => {
+          this.wsClients.delete(ws);
+        },
+      }))
+    );
+
     // Start server
     this.server = serve({
       fetch: app.fetch,
       port: this.port,
     }) as Server;
 
-    // Note: WebSocket handling would need additional setup
-    // For now, we'll poll the state API from the webview
+    // Inject WebSocket handling
+    injectWebSocket(this.server);
+
+    console.log(`[Argus] Server started on port ${this.port}`);
   }
 
   stop(): void {

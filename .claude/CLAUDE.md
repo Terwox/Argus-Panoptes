@@ -18,20 +18,26 @@ A **calm, ambient dashboard** for monitoring Claude Code sessions across multipl
 
 ### Calm UX (No Anxiety)
 
-4. **NO VISIBLE TIMERS** - No "47s ago" anxiety counters. No elapsed time displays. Just "working" vs "blocked".
+1. **NO VISIBLE TIMERS** - No "47s ago" anxiety counters. No elapsed time displays. Just "working" vs "blocked".
 
-5. **NO ANXIETY-INDUCING ELEMENTS** - This dashboard helps users calmly switch context and play whack-a-mole with projects. It is NOT a GO-GO-GO urgency dashboard.
+2. **NO ANXIETY-INDUCING ELEMENTS** - This dashboard helps users calmly switch context and play whack-a-mole with projects. It is NOT a GO-GO-GO urgency dashboard.
    - No timers on blocked items
    - No pulsing/flashing animations on blocked states
    - "Needs input" instead of "BLOCKED"
 
-6. **MAX 2 "NEEDS INPUT" NOTIFICATIONS** - When a project is blocked, show the blocked status in max 2 places: the header badge ("Needs input") and the conductor's speech bubble. Don't show redundant overlays or duplicate the question in subagent bubbles.
+3. **NO FLASHING** - Elements should never flash on/off rapidly. This includes speech bubbles, status indicators, and any UI element. Flashing is anxiety-inducing. Use smooth transitions or keep elements stable.
+
+4. **POINTER CURSOR = EXIT ACTION** - Only show a pointer/finger cursor when hovering over an element that will navigate the user OUT of the dashboard (to VS Code, terminal, external link, etc.). Regular in-app interactions should use default cursor.
+
+### Notification Limits
+
+1. **MAX 2 "NEEDS INPUT" NOTIFICATIONS** - When a project is blocked, show the blocked status in max 2 places: the header badge ("Needs input") and the conductor's speech bubble. Don't show redundant overlays or duplicate the question in subagent bubbles.
 
 ### Visual Hierarchy
 
-7. **CONDUCTOR IS SPECIAL** - Only the conductor (main bot) gets the blue body color, making it easy to identify at a glance. All other bots get role-specific colors.
+1. **CONDUCTOR IS SPECIAL** - Only the conductor (main bot) gets the blue body color, making it easy to identify at a glance. All other bots get role-specific colors.
 
-8. **ROLE-BASED IDENTITY** - Each role has a distinct body color AND held tool that match their personality:
+2. **ROLE-BASED IDENTITY** - Each role has a distinct body color AND held tool that match their personality:
    - Conductor: blue + baton
    - Architect: indigo + compass
    - Executor: slate + pipe wrench
@@ -42,15 +48,17 @@ A **calm, ambient dashboard** for monitoring Claude Code sessions across multipl
    - Tester: lime + bug net
    - etc.
 
-9. **BUBBLES ALWAYS VISIBLE** - Speech bubbles are always visible. Toggling creates cognitive load.
+3. **BUBBLES ALWAYS VISIBLE** - Speech bubbles are always visible. Toggling creates cognitive load.
+
+4. **SOLO CONDUCTOR EXPANDED BUBBLES** - When a conductor is alone (no subagents), their speech bubble should expand to use available space, showing many more characters instead of truncating. Use the full width available within container boundaries.
 
 ### Data Integrity
 
-10. **DON'T DECODE PROJECT PATHS** - Claude's directory encoding (e.g., `d--git-Argus-Panoptes`) is ambiguous (can't distinguish `-` as path separator vs literal hyphen). Always get the actual `cwd` from the transcript file instead of trying to decode directory names.
+1. **DON'T DECODE PROJECT PATHS** - Claude's directory encoding (e.g., `d--git-Argus-Panoptes`) is ambiguous (can't distinguish `-` as path separator vs literal hyphen). Always get the actual `cwd` from the transcript file instead of trying to decode directory names.
 
-11. **NO DUPLICATE PROJECTS** - Multiple Claude sessions in the same directory should be merged into one project card showing all agents. Never show the same project path twice.
+2. **NO DUPLICATE PROJECTS** - Multiple Claude sessions in the same directory should be merged into one project card showing all agents. Never show the same project path twice.
 
-12. **USER QUESTIONS ARE #1 PRIORITY** - The primary purpose of this dashboard is surfacing questions that terminals have for users. Detect ALL blocking tool calls: AskUserQuestion, ExitPlanMode, EnterPlanMode, permission prompts. Show the actual question text, not generic "Waiting...".
+3. **USER QUESTIONS ARE #1 PRIORITY** - The primary purpose of this dashboard is surfacing questions that terminals have for users. Detect ALL blocking tool calls: AskUserQuestion, ExitPlanMode, EnterPlanMode, permission prompts. Show the actual question text, not generic "Waiting...".
 
 ## Tradeoffs We Accept
 
@@ -70,17 +78,25 @@ A **calm, ambient dashboard** for monitoring Claude Code sessions across multipl
 - A notification center (use native notifications for that)
 - A comprehensive monitoring solution
 
+## Implemented Features
+
+- **Assembly animation**: Bot spawning can use piece-by-piece assembly animation (body → arms → legs → antenna → mouth → eyes) with magical sparkle effects.
+
+- **Server/daemon detection**: Background tasks that are servers (dev servers, Ollama, etc.) are detected and shown as "server_running" status with emerald color and gentle pulse. Shows port if detected.
+
+- **Rate limit detection**: Detects when Claude hits rate limits and shows calm "Back at X:XX PM" instead of blocked state.
+
 ## Future Ideas
 
-- **Assembly animation**: When conductor spawns a subagent, animate piece-by-piece assembly (body → arms → legs → antenna → mouth → eyes) instead of growing/scaling up.
-
-- **Server/daemon detection**: Background tasks that are servers (Ollama, dev servers, etc.) run indefinitely and will never "complete". Detect these and show them differently - maybe a different status like "running" with a server icon, or allow marking them as "service" type. Currently they show as perpetually "working" which is misleading.
+(Empty for now - suggest new ideas as they arise)
 
 ## Visual Testing
 
 **MANDATORY**: Before telling the user the dashboard looks a certain way, use `claude --chrome` to take a screenshot and CONFIRM it actually looks that way. Never claim UI changes are working without visual verification.
 
 The dashboard runs at http://localhost:5173.
+
+**NEVER kill all Chrome processes** - The user is coworking and uses Chrome. Instead, use the screenshot script which launches its own browser instance. If screenshots are timing out, debug the script itself rather than killing processes.
 
 ## Development
 

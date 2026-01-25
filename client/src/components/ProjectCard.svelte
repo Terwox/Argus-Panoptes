@@ -120,7 +120,7 @@
          {isFocused && !isBlocked ? 'ring-2 ring-blue-400/50 shadow-xl shadow-blue-500/10' : ''}
          {$layoutMode === 'compact' ? 'max-w-[350px] mx-auto w-full' : ''}"
   on:click={handleCardClick}
-  role="region"
+  role="button"
   tabindex="0"
   on:keydown={(e) => e.key === 'Enter' && handleCardClick()}
 >

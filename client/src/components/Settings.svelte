@@ -18,12 +18,21 @@
       return newValue;
     });
   }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      open = false;
+    }
+  }
 </script>
 
 {#if open}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="settings-overlay" on:click={() => open = false}>
-    <div class="settings-panel" on:click|stopPropagation>
-      <h3>Settings</h3>
+    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+    <div class="settings-panel" on:click|stopPropagation on:keydown={handleKeydown} role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <h3 id="settings-title">Settings</h3>
 
       <div class="setting-group">
         <label>
