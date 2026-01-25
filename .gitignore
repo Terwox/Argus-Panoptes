@@ -22,3 +22,26 @@ hook-debug.log
 
 # Claude
 .claude/settings.local.json
+
+# oh-my-claudecode plugin state (session-specific, not shareable)
+.omc/
+
+# Visual testing screenshots (generated during development, not source)
+.sisyphus/*.png
+.sisyphus/visual-tests/
+compact-mode-test.png
+
+# Spec documents (local planning artifacts, not source code)
+argus-panoptes-ui-spec-1-24-25.md
+
+# Test/utility files (development only)
+client/src/test-idle-animations.html
+client/src/lib/toastStore.ts
+scripts/generate-phrases.py
+scripts/screenshot-detailed.mjs
+
+# Windows artifacts
+NUL
+
+# Stray files (accidentally created)
+--no-demo
