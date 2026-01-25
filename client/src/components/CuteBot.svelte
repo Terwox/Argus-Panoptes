@@ -4,13 +4,11 @@
 
   export let status: AgentStatus;
   export let isTired: boolean = false;
-  export let isSleeping: boolean = false; // Show sleeping zzz animation
   export let size: 'xs' | 'sm' | 'md' | 'lg' = 'md';
   export let role: string = 'main'; // Agent role/type for the held object
   export let conductorIndex: number = 0; // 0 = primary conductor, 1+ = secondary conductors
   export let conjuring: boolean = false; // Is this bot currently being conjured?
   export let conjureAnimation: 'classic' | 'teleport' | 'factory' | 'inflate' | 'pixel' | 'spring' | 'assembly' = 'classic';
-  export let conjureProgress: number = 0; // 0-1 progress of conjuration
   export let bobble: boolean = false; // Trigger bobble animation (squash/stretch)
 
   // Idle animations for conductor
@@ -55,8 +53,9 @@
     }
   }
 
-  // For idle eyes
+  // For idle eyes - check if sleeping state is needed
   $: isIdle = status === 'idle';
+  $: isSleeping = isIdle && (idleAnimation === 'sleeping' || idleAnimation === 'bed');
   $: idleEyesClosed = isIdle && (idleAnimation === 'sleeping' || idleAnimation === 'meditating' || idleAnimation === 'bed');
 
   const sizeClasses = {
@@ -130,12 +129,15 @@
   // Body colors by role when working - each role has distinct identity
   // DESIGN: Only conductor gets blue body - makes main bot easy to identify at a glance
   // Other roles get colors that match their tool/personality
-  // Secondary conductors get a slightly different blue (>2x JND from primary)
-  const primaryConductorBlue = '#3b82f6';   // blue-500 - primary conductor
-  const secondaryConductorBlue = '#2563eb'; // blue-600 - secondary conductors (noticeable but still blue)
+  // MULTIPLE CONDUCTORS: Use distinctly different colors so they're easy to tell apart
+  const conductorColors = [
+    '#3b82f6',   // blue-500 - primary conductor
+    '#8b5cf6',   // violet-500 - second conductor (clearly different)
+    '#06b6d4',   // cyan-500 - third conductor
+  ];
 
   const bodyColors: Record<string, string> = {
-    conductor: primaryConductorBlue,   // blue - special, easy to spot (will be overridden for secondary)
+    conductor: conductorColors[0],   // blue - special, easy to spot (will be overridden for secondary)
     background: '#10b981',  // emerald - terminal green
     architect: '#6366f1',   // indigo - matches compass
     executor: '#64748b',    // slate - industrial workhorse
@@ -154,9 +156,9 @@
     worker: '#0d9488',      // teal - default
   };
 
-  // Bot colors - secondary conductors get a different blue shade
-  $: workingColor = roleCategory === 'conductor' && conductorIndex > 0
-    ? secondaryConductorBlue
+  // Bot colors - each conductor gets a distinct color from the conductorColors array
+  $: workingColor = roleCategory === 'conductor'
+    ? conductorColors[conductorIndex % conductorColors.length]
     : bodyColors[roleCategory] || bodyColors.worker;
 
   $: bodyColor = status === 'blocked'

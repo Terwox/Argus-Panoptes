@@ -1640,6 +1640,7 @@
       </div>
 
       <!-- Name tag with spawn animation -->
+      <!-- MULTIPLE CONDUCTORS: Show numbering when there are multiple (conductor 1, conductor 2) -->
       <div
         class="absolute top-full left-1/2 mt-1 text-xs whitespace-nowrap text-center transition-all duration-500"
         class:text-cyan-300={bot.spawning}
@@ -1649,7 +1650,9 @@
         class:scale-110={bot.spawning}
         style="transform: translateX(-50%) scaleX({bot.direction === 'left' ? -1 : 1})"
       >
-        {bot.agent.type === 'main' ? 'conductor' : cleanAgentName(bot.agent.name) || 'worker'}
+        {bot.agent.type === 'main'
+          ? (currentConductorCount > 1 ? `conductor ${effectiveConductorIndex + 1}` : 'conductor')
+          : cleanAgentName(bot.agent.name) || 'worker'}
         {#if bot.spawning}
           <span class="animate-pulse"> ✨</span>
         {/if}
