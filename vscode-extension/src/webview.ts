@@ -2,8 +2,7 @@
  * Argus Dashboard WebView Panel
  *
  * Renders the Svelte dashboard inside a VS Code WebView panel.
- * In dev mode, loads from Vite dev server.
- * In prod mode, loads bundled assets.
+ * Uses postMessage API for communication (WebSockets don't work in WebViews).
  */
 
 import * as vscode from 'vscode';
@@ -40,6 +39,8 @@ export class ArgusDashboardPanel {
       () => {
         if (this.panel.visible) {
           this.update();
+          // Re-send current state when panel becomes visible
+          this.sendCurrentState();
         }
       },
       null,
@@ -50,6 +51,10 @@ export class ArgusDashboardPanel {
     this.panel.webview.onDidReceiveMessage(
       (message) => {
         switch (message.type) {
+          case 'ready':
+            // WebView is ready, send current state
+            this.sendCurrentState();
+            break;
           case 'openProject':
             this.openProjectInTerminal(message.projectPath);
             break;
@@ -62,6 +67,29 @@ export class ArgusDashboardPanel {
       null,
       this.disposables
     );
+
+    // Subscribe to server state changes and forward to WebView
+    if (this.server) {
+      this.server.onStateChange((state) => {
+        this.panel.webview.postMessage({
+          type: 'state_update',
+          payload: state,
+        });
+      });
+    }
+
+    // Initial state is sent when WebView sends 'ready' message (see message handler above)
+    // DO NOT use setTimeout here - it creates a race condition where postMessage
+    // fires before the WebView's message listener is registered
+  }
+
+  private sendCurrentState() {
+    if (this.server) {
+      this.panel.webview.postMessage({
+        type: 'state_update',
+        payload: this.server.getState(),
+      });
+    }
   }
 
   public static render(extensionUri: vscode.Uri, server: ArgusServer | null) {
@@ -101,15 +129,13 @@ export class ArgusDashboardPanel {
 
   private getHtmlContent(): string {
     const webview = this.panel.webview;
-    const config = vscode.workspace.getConfiguration('argus');
-    const serverPort = config.get<number>('server.port', 4242);
 
     // Check if we're in dev mode (webview-dist doesn't exist)
     const webviewDistPath = path.join(this.extensionUri.fsPath, 'webview-dist');
     const isDev = !fs.existsSync(webviewDistPath);
 
     if (isDev) {
-      // Dev mode: load from Vite dev server
+      // Dev mode: show instructions
       return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -144,19 +170,14 @@ export class ArgusDashboardPanel {
 <body>
   <div class="dev-notice">
     <h2>Development Mode</h2>
-    <p>The Argus dashboard is running on the Vite dev server.</p>
+    <p>The Argus dashboard needs to be built.</p>
     <p>
-      <a href="http://localhost:5173" target="_blank">Open in browser</a>
-      or run <code>npm run build:webview</code> to bundle.
+      Run <code>npm run ext:build</code> from the project root.
     </p>
     <p style="margin-top: 20px; color: #888;">
-      Server running on port ${serverPort}
+      Or use the standalone dashboard at <a href="http://localhost:5173">localhost:5173</a>
     </p>
   </div>
-  <script>
-    // In dev mode, we could embed an iframe to the dev server
-    // But that has CSP issues - better to just use the browser
-  </script>
 </body>
 </html>`;
     }
@@ -184,7 +205,7 @@ export class ArgusDashboardPanel {
 </head>
 <body>
   <h2 class="error">Build Required</h2>
-  <p>Run <code>npm run build:webview</code> to generate the dashboard.</p>
+  <p>Run <code>npm run ext:build</code> to generate the dashboard.</p>
 </body>
 </html>`;
     }
@@ -201,15 +222,14 @@ export class ArgusDashboardPanel {
     html = html.replace(/src="\/assets\//g, `src="${assetsUri}/`);
     html = html.replace(/href="\/assets\//g, `href="${assetsUri}/`);
 
-    // Inject server port configuration
-    html = html.replace(
-      '</head>',
-      `<script>window.ARGUS_SERVER_PORT = ${serverPort};</script></head>`
-    );
+    // Inject flag to tell client it's running in VS Code WebView (uses postMessage, not WebSocket)
+    // Note: We now use acquireVsCodeApi presence for detection, but keep flag for backwards compatibility
+    const flagScript = `<script>window.ARGUS_VSCODE_WEBVIEW = true;</script>`;
+    html = html.replace('</head>', `${flagScript}</head>`);
 
-    // Add CSP meta tag
+    // Add CSP meta tag (no WebSocket/connect-src needed - we use postMessage)
     const cspSource = webview.cspSource;
-    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline'; connect-src ws://localhost:${serverPort} http://localhost:${serverPort}; img-src ${cspSource} data:;">`;
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline'; img-src ${cspSource} data:;">`;
     html = html.replace('<head>', `<head>${cspMeta}`);
 
     return html;

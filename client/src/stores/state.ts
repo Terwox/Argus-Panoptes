@@ -247,7 +247,40 @@ export const metrics = derived(state, ($state) => {
   };
 });
 
-// WebSocket connection
+// Declare the global variables that VS Code extension injects
+declare global {
+  interface Window {
+    ARGUS_VSCODE_WEBVIEW?: boolean;
+    ARGUS_SERVER_PORT?: number;
+  }
+}
+
+// Check if running in VS Code WebView (uses postMessage, not WebSocket)
+// Use acquireVsCodeApi presence as the definitive check - it's always available in WebViews
+function isVSCodeWebView(): boolean {
+  if (typeof window === 'undefined') return false;
+  return 'acquireVsCodeApi' in window;
+}
+
+// Acquire VS Code API (only available in WebView context)
+interface VSCodeAPI {
+  postMessage(message: unknown): void;
+  getState(): unknown;
+  setState(state: unknown): void;
+}
+
+let vscodeApi: VSCodeAPI | null = null;
+
+function getVSCodeAPI(): VSCodeAPI | null {
+  if (vscodeApi) return vscodeApi;
+  if (typeof window !== 'undefined' && 'acquireVsCodeApi' in window) {
+    vscodeApi = (window as any).acquireVsCodeApi();
+    return vscodeApi;
+  }
+  return null;
+}
+
+// WebSocket connection (for standalone mode)
 let ws: WebSocket | null = null;
 let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -257,23 +290,46 @@ function getWsUrl(): string {
   return `${protocol}//${host}/ws`;
 }
 
+// Handle incoming messages (works for both WebSocket and postMessage)
+function handleMessage(message: WSMessage): void {
+  if (message.type === 'state_update' && message.payload) {
+    state.set(message.payload as ArgusState);
+  }
+}
+
 export function connect(): void {
+  // VS Code WebView mode: use postMessage instead of WebSocket
+  if (isVSCodeWebView()) {
+    connected.set(true); // Always "connected" in WebView mode
+
+    // Listen for messages from the extension
+    window.addEventListener('message', (event) => {
+      const message = event.data as WSMessage;
+      handleMessage(message);
+    });
+
+    // Tell the extension we're ready to receive state
+    const api = getVSCodeAPI();
+    if (api) {
+      api.postMessage({ type: 'ready' });
+    }
+
+    return;
+  }
+
+  // Standalone mode: use WebSocket
   if (ws && ws.readyState === WebSocket.OPEN) return;
 
   ws = new WebSocket(getWsUrl());
 
   ws.onopen = () => {
     connected.set(true);
-    console.log('[Argus] Connected to server');
   };
 
   ws.onmessage = (event) => {
     try {
       const message: WSMessage = JSON.parse(event.data);
-
-      if (message.type === 'state_update' && message.payload) {
-        state.set(message.payload as ArgusState);
-      }
+      handleMessage(message);
     } catch (e) {
       console.error('[Argus] Failed to parse message:', e);
     }
@@ -281,8 +337,6 @@ export function connect(): void {
 
   ws.onclose = () => {
     connected.set(false);
-    console.log('[Argus] Disconnected, reconnecting in 3s...');
-
     // Reconnect after 3 seconds
     if (reconnectTimeout) clearTimeout(reconnectTimeout);
     reconnectTimeout = setTimeout(connect, 3000);
@@ -294,6 +348,11 @@ export function connect(): void {
 }
 
 export function disconnect(): void {
+  if (isVSCodeWebView()) {
+    // Nothing to disconnect in WebView mode
+    return;
+  }
+
   if (reconnectTimeout) {
     clearTimeout(reconnectTimeout);
     reconnectTimeout = null;
@@ -305,9 +364,9 @@ export function disconnect(): void {
   connected.set(false);
 }
 
-// Ping to keep connection alive
+// Ping to keep WebSocket connection alive (only in standalone mode)
 setInterval(() => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (!isVSCodeWebView() && ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'ping', payload: null }));
   }
 }, 30000);
