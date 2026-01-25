@@ -10,22 +10,34 @@
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build client",
     "build:server": "tsc",
-    "start": "node dist/server/index.js"
+    "start": "node dist/server/index.js",
+    "test": "node scripts/state-test.mjs",
+    "test:visual": "node scripts/visual-test.mjs",
+    "test:state": "node scripts/state-test.mjs",
+    "test:overlap": "node scripts/overlap-check.mjs",
+    "screenshot": "node scripts/quick-screenshot.mjs",
+    "screenshot:settled": "node scripts/settled-screenshot.mjs",
+    "ext:build": "cd vscode-extension && npm run build",
+    "ext:watch": "cd vscode-extension && npm run watch",
+    "ext:package": "cd vscode-extension && npm run package"
   },
   "dependencies": {
-    "hono": "^4.6.0",
     "@hono/node-ws": "^1.0.0",
+    "hono": "^4.6.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^3.1.0",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.0",
+    "autoprefixer": "^10.4.0",
     "concurrently": "^9.0.0",
+    "pixelmatch": "^5.3.0",
+    "pngjs": "^7.0.0",
+    "postcss": "^8.4.0",
+    "puppeteer": "^24.36.0",
     "svelte": "^4.2.0",
     "tailwindcss": "^3.4.0",
-    "autoprefixer": "^10.4.0",
-    "postcss": "^8.4.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vite": "^5.4.0"

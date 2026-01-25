@@ -1,0 +1,10 @@
+.gitignore
+.vscode/**
+src/**
+node_modules/**
+!node_modules/@hono/**
+!node_modules/hono/**
+tsconfig.json
+*.map
+*.ts
+.vscode-test/**

@@ -9,7 +9,7 @@
   export let role: string = 'main'; // Agent role/type for the held object
   export let conductorIndex: number = 0; // 0 = primary conductor, 1+ = secondary conductors
   export let conjuring: boolean = false; // Is this bot currently being conjured?
-  export let conjureAnimation: 'classic' | 'teleport' | 'factory' | 'inflate' | 'pixel' | 'spring' = 'classic';
+  export let conjureAnimation: 'classic' | 'teleport' | 'factory' | 'inflate' | 'pixel' | 'spring' | 'assembly' = 'classic';
   export let conjureProgress: number = 0; // 0-1 progress of conjuration
   export let bobble: boolean = false; // Trigger bobble animation (squash/stretch)
 
@@ -121,7 +121,11 @@
     ? 'animate-bounce-slow'
     : status === 'blocked'
       ? 'animate-wiggle'
-      : '';
+      : status === 'rate_limited'
+        ? '' // Calm, no animation - just waiting
+        : status === 'server_running'
+          ? 'animate-pulse-slow' // Gentle pulse - server is alive
+          : '';
 
   // Body colors by role when working - each role has distinct identity
   // DESIGN: Only conductor gets blue body - makes main bot easy to identify at a glance
@@ -157,11 +161,15 @@
 
   $: bodyColor = status === 'blocked'
     ? '#f59e0b' // amber - all bots
-    : status === 'working'
-      ? workingColor
-      : status === 'idle'
-        ? '#6b7280' // gray for idle - calm, neutral
-        : '#22c55e'; // green for complete - all bots
+    : status === 'rate_limited'
+      ? '#0ea5e9' // sky blue - calm, waiting for quota
+      : status === 'server_running'
+        ? '#10b981' // emerald - server is running
+        : status === 'working'
+          ? workingColor
+          : status === 'idle'
+            ? '#6b7280' // gray for idle - calm, neutral
+          : '#22c55e'; // green for complete - all bots
 
   $: eyeColor = isTired ? '#999' : '#fff';
 </script>
@@ -203,6 +211,18 @@
         <circle cx="63" cy="50" r="8" fill={eyeColor} />
         <circle cx="37" cy="50" r="4" fill="#333" />
         <circle cx="63" cy="50" r="4" fill="#333" />
+      {:else if status === 'rate_limited'}
+        <!-- Calm/content eyes - waiting patiently (like coffee break) -->
+        <ellipse cx="37" cy="50" rx="5" ry="4" fill={eyeColor} />
+        <ellipse cx="63" cy="50" rx="5" ry="4" fill={eyeColor} />
+        <circle cx="38" cy="51" r="2" fill="#333" />
+        <circle cx="64" cy="51" r="2" fill="#333" />
+      {:else if status === 'server_running'}
+        <!-- Focused eyes with slight glow - server is humming -->
+        <circle cx="37" cy="50" r="6" fill={eyeColor} />
+        <circle cx="63" cy="50" r="6" fill={eyeColor} />
+        <circle cx="38" cy="50" r="3" fill="#10b981" />
+        <circle cx="64" cy="50" r="3" fill="#10b981" />
       {:else if status === 'complete'}
         <!-- Happy closed eyes -->
         <path d="M 32 50 Q 37 45 42 50" stroke={eyeColor} stroke-width="3" fill="none" stroke-linecap="round" />
@@ -227,6 +247,12 @@
       {#if status === 'blocked'}
         <!-- Worried open mouth -->
         <ellipse cx="50" cy="68" rx="8" ry="6" fill="#333" />
+      {:else if status === 'rate_limited'}
+        <!-- Content smile - taking a break -->
+        <path d="M 42 66 Q 50 70 58 66" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" />
+      {:else if status === 'server_running'}
+        <!-- Satisfied smile - server humming along -->
+        <path d="M 40 65 Q 50 71 60 65" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" />
       {:else if status === 'complete'}
         <!-- Big smile -->
         <path d="M 35 65 Q 50 78 65 65" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" />
@@ -572,6 +598,15 @@
     animation: wiggle 0.5s ease-in-out infinite;
   }
 
+  @keyframes pulse-slow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  .animate-pulse-slow {
+    animation: pulse-slow 3s ease-in-out infinite;
+  }
+
   :global(.animate-type-left) {
     animation: type-left 0.3s ease-in-out infinite;
   }
@@ -739,6 +774,51 @@
     animation-delay: var(--part-delay);
     opacity: 0;
   }
+
+  /* Style 7: Assembly - magical piece-by-piece construction */
+  /* Each part materializes from sparkles and clicks into place */
+  @keyframes conjure-assembly {
+    0% {
+      opacity: 0;
+      transform: scale(0) rotate(-180deg);
+      filter: blur(8px) brightness(2);
+    }
+    30% {
+      opacity: 0.5;
+      transform: scale(0.5) rotate(-90deg);
+      filter: blur(4px) brightness(1.5);
+    }
+    70% {
+      opacity: 1;
+      transform: scale(1.15) rotate(10deg);
+      filter: blur(0) brightness(1.2);
+    }
+    85% {
+      transform: scale(0.95) rotate(-5deg);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1) rotate(0deg);
+      filter: blur(0) brightness(1);
+    }
+  }
+
+  /* Assembly has longer, more dramatic delays for each part */
+  .conjure-assembly {
+    animation: conjure-assembly 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    opacity: 0;
+  }
+
+  /* Override part delays for assembly to be more dramatic */
+  .bot-body.conjure-assembly { animation-delay: 0s; }
+  .bot-leg-left.conjure-assembly { animation-delay: 0.15s; }
+  .bot-leg-right.conjure-assembly { animation-delay: 0.2s; }
+  .bot-arm-left.conjure-assembly { animation-delay: 0.3s; }
+  .bot-arm-right.conjure-assembly { animation-delay: 0.35s; }
+  .bot-antenna.conjure-assembly { animation-delay: 0.45s; }
+  .bot-eyes.conjure-assembly { animation-delay: 0.55s; }
+  .bot-mouth.conjure-assembly { animation-delay: 0.6s; }
+  .bot-tool.conjure-assembly { animation-delay: 0.65s; }
 
   /* Bobble animation - quick squash then stretch then settle */
   @keyframes bobble {

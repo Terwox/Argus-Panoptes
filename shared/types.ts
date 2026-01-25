@@ -33,8 +33,8 @@ export interface ArgusEvent {
 // State (maintained by server, sent to UI)
 // ============================================
 
-export type ProjectStatus = 'idle' | 'working' | 'blocked';
-export type AgentStatus = 'idle' | 'working' | 'blocked' | 'complete';
+export type ProjectStatus = 'idle' | 'working' | 'blocked' | 'rate_limited' | 'server_running';
+export type AgentStatus = 'idle' | 'working' | 'blocked' | 'complete' | 'rate_limited' | 'server_running';
 
 export interface SessionModes {
   ralph?: boolean;
@@ -60,6 +60,7 @@ export interface Agent {
   delegatingTo?: string; // Agent type being delegated to (for "Passing work to..." display)
   transcriptPath?: string; // Path to transcript file for navigation
   transcriptLine?: number; // Line number in transcript for current activity
+  rateLimitResetAt?: number; // Timestamp when rate limit resets (if rate limited)
 }
 
 export interface Project {

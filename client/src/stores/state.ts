@@ -5,9 +5,11 @@
  */
 
 import { writable, derived, get } from 'svelte/store';
-import type { ArgusState, Project, ProjectStatus, WSMessage } from '../../../shared/types.js';
+import type { ArgusState, Project, ProjectStatus, Agent, WSMessage } from '../../../shared/types.js';
 import { generateFakeProjects, refreshFakeActivities, fetchGitActivities } from '../lib/fakeProjects.js';
 import { requestNotificationPermission, notifyBlockedProject, clearNotificationState } from '../lib/notifications.js';
+import { playChime } from '../lib/sounds.js';
+import { toasts } from './toast.js';
 
 // WebSocket connection state
 export const connected = writable(false);
@@ -34,12 +36,12 @@ function getCuteDefault(): boolean {
 }
 export const cuteMode = writable<boolean>(getCuteDefault());
 
-// Demo mode: show demo projects when ≤3 real projects - ON by default
+// Demo mode: show demo projects when ≤3 real projects - OFF by default
 function getFakeDefault(): boolean {
-  if (typeof window === 'undefined') return true;
+  if (typeof window === 'undefined') return false;
   const params = new URLSearchParams(window.location.search);
-  // Default ON, only disable if explicitly set to false
-  return params.get('demo') !== 'false' && params.get('fake') !== 'false';
+  // Default OFF, only enable if explicitly set to true
+  return params.get('demo') === 'true' || params.get('fake') === 'true';
 }
 export const fakeMode = writable<boolean>(getFakeDefault());
 
@@ -82,33 +84,88 @@ export const showArchived = writable<boolean>(false);
 // Track which projects have already triggered notifications (prevent duplicates)
 export const notifiedBlocked = writable<Set<string>>(new Set());
 
-// Derived: sorted projects array (real projects only)
-export const realProjects = derived(state, ($state) => {
-  const projects = Object.values($state.projects);
+// Layout mode: grid (default) or compact
+function getLayoutModeFromStorage(): 'grid' | 'compact' {
+  if (typeof window === 'undefined') return 'grid';
+  const stored = localStorage.getItem('argus-layout-mode');
+  return (stored === 'compact' || stored === 'grid') ? stored : 'grid';
+}
 
-  // Sort by: blocked > working > idle, then by blockedSince (oldest first) or lastActivity
-  return projects.sort((a, b) => {
-    const statusOrder = { blocked: 0, working: 1, idle: 2 };
-    const aOrder = statusOrder[a.status];
-    const bOrder = statusOrder[b.status];
+export const layoutMode = writable<'grid' | 'compact'>(getLayoutModeFromStorage());
 
-    if (aOrder !== bOrder) return aOrder - bOrder;
-
-    // Within same status
-    if (a.status === 'blocked' && b.status === 'blocked') {
-      // Oldest blocked first (FIFO)
-      return (a.blockedSince || 0) - (b.blockedSince || 0);
-    }
-
-    if (a.status === 'working' && b.status === 'working') {
-      // Most recent activity first
-      return b.lastActivityAt - a.lastActivityAt;
-    }
-
-    // Idle: alphabetical
-    return a.name.localeCompare(b.name);
-  });
+// Sync to localStorage on change
+layoutMode.subscribe($mode => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('argus-layout-mode', $mode);
+  }
 });
+
+// Sound enabled toggle
+function getSoundEnabledFromStorage(): boolean {
+  if (typeof window === 'undefined') return false;
+  const stored = localStorage.getItem('argus-sound-enabled');
+  return stored === 'true';
+}
+
+export const soundEnabled = writable<boolean>(getSoundEnabledFromStorage());
+
+// Sync to localStorage on change
+soundEnabled.subscribe($enabled => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('argus-sound-enabled', $enabled.toString());
+  }
+});
+
+// Track when projects were first seen (for stable ordering)
+const projectFirstSeen = new Map<string, number>();
+
+// Derived: sorted projects array (real projects only)
+// Stable ordering: blocked first, then focused, then by firstSeen order
+export const realProjects = derived(
+  [state, focusedProject],
+  ([$state, $focusedProject]) => {
+    const projects = Object.values($state.projects);
+
+    // Track first-seen time for new projects
+    for (const project of projects) {
+      if (!projectFirstSeen.has(project.id)) {
+        projectFirstSeen.set(project.id, Date.now());
+      }
+    }
+
+    // Clean up tracking for removed projects
+    for (const id of projectFirstSeen.keys()) {
+      if (!$state.projects[id]) {
+        projectFirstSeen.delete(id);
+      }
+    }
+
+    // Sort: blocked first (FIFO), then focused, then by firstSeen (stable)
+    return projects.sort((a, b) => {
+      // 1. Blocked projects always come first (highest priority)
+      const aBlocked = a.status === 'blocked';
+      const bBlocked = b.status === 'blocked';
+      if (aBlocked && !bBlocked) return -1;
+      if (!aBlocked && bBlocked) return 1;
+
+      // 2. Among blocked, oldest first (FIFO)
+      if (aBlocked && bBlocked) {
+        return (a.blockedSince || 0) - (b.blockedSince || 0);
+      }
+
+      // 3. Focused project comes next (but after blocked)
+      const aFocused = a.id === $focusedProject;
+      const bFocused = b.id === $focusedProject;
+      if (aFocused && !bFocused) return -1;
+      if (!aFocused && bFocused) return 1;
+
+      // 4. Otherwise, stable order by first-seen time
+      const aFirstSeen = projectFirstSeen.get(a.id) || 0;
+      const bFirstSeen = projectFirstSeen.get(b.id) || 0;
+      return aFirstSeen - bFirstSeen;
+    });
+  }
+);
 
 // Derived: sorted projects including fake ones when enabled, filtering archived
 export const sortedProjects = derived(
@@ -143,6 +200,8 @@ export const stats = derived(state, ($state) => {
   return {
     total: projects.length,
     blocked: projects.filter((p) => p.status === 'blocked').length,
+    rateLimited: projects.filter((p) => p.status === 'rate_limited').length,
+    serverRunning: projects.filter((p) => p.status === 'server_running').length,
     working: projects.filter((p) => p.status === 'working').length,
     idle: projects.filter((p) => p.status === 'idle').length,
   };
@@ -305,9 +364,27 @@ fakeMode.subscribe(async ($fakeMode) => {
   }
 });
 
-// Notification system: watch for blocked projects
+// Notification system: watch for state changes and emit toasts
 let previousProjectStates = new Map<string, ProjectStatus>();
+let previousAgentIds = new Map<string, Set<string>>(); // project.id -> set of agent IDs
 let hasRequestedPermission = false;
+let isInitialLoad = true;
+
+// Helper to clean agent name for display
+function cleanAgentName(name: string): string {
+  return name.replace(/^oh-my-claudecode:/i, '').replace(/^omc:/i, '');
+}
+
+// Format rate limit reset time
+function formatResetTime(timestamp: number | undefined): string {
+  if (!timestamp) return 'soon';
+  const resetDate = new Date(timestamp);
+  return resetDate.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  });
+}
 
 state.subscribe(async ($state) => {
   const projects = Object.values($state.projects);
@@ -315,8 +392,49 @@ state.subscribe(async ($state) => {
   for (const project of projects) {
     const previousStatus = previousProjectStates.get(project.id);
     const currentStatus = project.status;
+    const agents = Object.values(project.agents) as Agent[];
+    const previousAgents = previousAgentIds.get(project.id) || new Set<string>();
+    const currentAgentIds = new Set(agents.map(a => a.id));
 
-    // Check if project just became blocked
+    // Skip toasts on initial load (don't spam user with existing state)
+    if (!isInitialLoad) {
+      // --- Agent spawned ---
+      for (const agent of agents) {
+        if (!previousAgents.has(agent.id) && agent.type === 'subagent') {
+          const name = cleanAgentName(agent.name || agent.id);
+          const task = agent.task ? agent.task.slice(0, 100) : 'starting work';
+          toasts.addToast(`🤖 ${name} spawned: ${task}`, 'info', 8000, project.name);
+        }
+      }
+
+      // --- Status changes ---
+      if (currentStatus !== previousStatus) {
+        // Rate limited
+        if (currentStatus === 'rate_limited') {
+          const rateLimitedAgent = agents.find(a => a.status === 'rate_limited');
+          const resetTime = formatResetTime(rateLimitedAgent?.rateLimitResetAt);
+          toasts.addToast(`☕ Rate limited - back at ${resetTime}`, 'info', 10000, project.name);
+        }
+
+        // Server running
+        if (currentStatus === 'server_running' && previousStatus !== 'server_running') {
+          const serverAgent = agents.find(a => a.status === 'server_running');
+          const activity = serverAgent?.currentActivity || 'Server running';
+          toasts.addToast(`🖥️ ${activity}`, 'info', 8000, project.name);
+        }
+
+        // Started working (from idle)
+        if (currentStatus === 'working' && previousStatus === 'idle') {
+          const workingAgent = agents.find(a => a.status === 'working');
+          const activity = workingAgent?.currentActivity || workingAgent?.task;
+          if (activity) {
+            toasts.addToast(`▶️ Started: ${activity.slice(0, 80)}`, 'info', 6000, project.name);
+          }
+        }
+      }
+    }
+
+    // Check if project just became blocked (keep OS notification + sound)
     if (currentStatus === 'blocked' && previousStatus !== 'blocked') {
       // Request permission on first blocked project (if not already done)
       if (!hasRequestedPermission) {
@@ -326,6 +444,11 @@ state.subscribe(async ($state) => {
 
       // Show notification for newly blocked project
       notifyBlockedProject(project);
+
+      // Play sound if enabled
+      if (get(soundEnabled)) {
+        playChime();
+      }
     }
 
     // Check if project unblocked
@@ -335,6 +458,7 @@ state.subscribe(async ($state) => {
 
     // Update tracked state
     previousProjectStates.set(project.id, currentStatus);
+    previousAgentIds.set(project.id, currentAgentIds);
   }
 
   // Clean up tracking for deleted projects
@@ -342,7 +466,11 @@ state.subscribe(async ($state) => {
   for (const [id] of previousProjectStates) {
     if (!currentProjectIds.has(id)) {
       previousProjectStates.delete(id);
+      previousAgentIds.delete(id);
       clearNotificationState(id);
     }
   }
+
+  // After first update, no longer initial load
+  isInitialLoad = false;
 });

@@ -1,17 +1,20 @@
 <script lang="ts">
-  export let stats: { total: number; blocked: number; working: number; idle: number };
+  export let stats: { total: number; blocked: number; working: number; idle: number; rateLimited?: number; serverRunning?: number };
 
   // Track previous state for pulse animation trigger
-  let prevState: 'clear' | 'attention' | 'critical' = 'clear';
+  let prevState: 'clear' | 'attention' | 'waiting' | 'critical' = 'clear';
   let shouldPulse = false;
 
   // Determine current health state
+  // Rate limited is treated as a calm "waiting" state, not attention-needed
   $: state = stats.total === 0
     ? 'clear' // No projects = all clear
     : stats.blocked === stats.total
     ? 'critical' // All projects blocked = critical
     : stats.blocked > 0
     ? 'attention' // Some blocked = attention needed
+    : (stats.rateLimited ?? 0) > 0
+    ? 'waiting' // Rate limited = calm waiting (no urgency)
     : 'clear'; // None blocked = all clear
 
   // Trigger single pulse animation when transitioning to critical
@@ -32,6 +35,8 @@
     ? '#22c55e' // green-500
     : state === 'attention'
     ? '#f59e0b' // amber-500
+    : state === 'waiting'
+    ? '#0ea5e9' // sky-500 - calm waiting
     : '#ef4444'; // red-500
 
   // Label text
@@ -39,6 +44,8 @@
     ? 'All clear'
     : state === 'attention'
     ? `${stats.blocked} need${stats.blocked === 1 ? 's' : ''} input`
+    : state === 'waiting'
+    ? `${stats.rateLimited ?? 0} waiting for quota`
     : 'All blocked';
 
   // Tooltip breakdown text
@@ -46,6 +53,8 @@
     ? 'No active sessions'
     : [
         stats.blocked > 0 ? `${stats.blocked} blocked` : null,
+        (stats.rateLimited ?? 0) > 0 ? `${stats.rateLimited} rate limited` : null,
+        (stats.serverRunning ?? 0) > 0 ? `${stats.serverRunning} running servers` : null,
         stats.working > 0 ? `${stats.working} working` : null,
         stats.idle > 0 ? `${stats.idle} idle` : null,
       ]
@@ -74,6 +83,7 @@
     class="font-medium transition-colors duration-300"
     class:text-green-400={state === 'clear'}
     class:text-amber-400={state === 'attention'}
+    class:text-sky-400={state === 'waiting'}
     class:text-red-400={state === 'critical'}
   >
     {label}

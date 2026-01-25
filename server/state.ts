@@ -96,6 +96,8 @@ function updateProjectStatus(project: Project): void {
   const agents = project.agents as Map<string, Agent>;
   const now = Date.now();
   let hasBlocked = false;
+  let hasRateLimited = false;
+  let hasServerRunning = false;
   let hasWorking = false;
 
   for (const agent of agents.values()) {
@@ -103,20 +105,36 @@ function updateProjectStatus(project: Project): void {
     const isStale = now - agent.lastActivityAt > IDLE_TIMEOUT;
 
     // Transition working agents to idle if they've been inactive
+    // BUT don't transition server_running agents - they stay running
     if (agent.status === 'working' && isStale) {
       agent.status = 'idle';
     }
 
+    // Check for rate limit reset (auto-unblock when time passes)
+    if (agent.status === 'rate_limited' && agent.rateLimitResetAt && now > agent.rateLimitResetAt) {
+      agent.status = 'working';
+      agent.rateLimitResetAt = undefined;
+      agent.question = undefined;
+    }
+
     if (agent.status === 'blocked') hasBlocked = true;
+    if (agent.status === 'rate_limited') hasRateLimited = true;
+    if (agent.status === 'server_running') hasServerRunning = true;
     // Only count as "working" if we've heard from them recently
     if (agent.status === 'working' && !isStale) hasWorking = true;
   }
 
+  // Priority: blocked > rate_limited > working > server_running > idle
+  // Server running is low priority - it's ambient, not attention-grabbing
   const newStatus: ProjectStatus = hasBlocked
     ? 'blocked'
-    : hasWorking
-      ? 'working'
-      : 'idle';
+    : hasRateLimited
+      ? 'rate_limited'
+      : hasWorking
+        ? 'working'
+        : hasServerRunning
+          ? 'server_running'
+          : 'idle';
 
   if (newStatus === 'blocked' && project.status !== 'blocked') {
     project.blockedSince = Date.now();
@@ -126,6 +144,7 @@ function updateProjectStatus(project: Project): void {
 
   project.status = newStatus;
   // Only update lastActivityAt if we're not going idle due to staleness
+  // Server running counts as activity (keeps project visible)
   if (newStatus !== 'idle') {
     project.lastActivityAt = Date.now();
   }
@@ -269,11 +288,81 @@ export function onAgentUnblocked(
 
   // Only unblock the specific session that received input
   const agent = agents.get(sessionId);
-  if (agent && agent.status === 'blocked') {
+  if (agent && (agent.status === 'blocked' || agent.status === 'rate_limited')) {
     agent.status = 'working';
     agent.question = undefined;
+    agent.rateLimitResetAt = undefined;
     agent.lastActivityAt = Date.now();
   }
+
+  updateProjectStatus(project);
+  return project;
+}
+
+// Agent hit rate limit
+export function onAgentRateLimited(
+  sessionId: string,
+  projectPath: string,
+  projectName: string,
+  resetAt?: number,
+  message?: string
+): Project {
+  const project = getOrCreateProject(projectPath, projectName);
+  const agents = project.agents as Map<string, Agent>;
+
+  let agent = agents.get(sessionId);
+  if (!agent) {
+    agent = {
+      id: sessionId,
+      name: 'main',
+      type: 'main',
+      status: 'working',
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+    };
+    agents.set(sessionId, agent);
+  }
+
+  agent.status = 'rate_limited';
+  agent.rateLimitResetAt = resetAt;
+  if (message) {
+    agent.question = message; // Reuse question field for rate limit message
+  }
+  agent.lastActivityAt = Date.now();
+
+  updateProjectStatus(project);
+  return project;
+}
+
+// Agent is running a server/daemon
+export function onAgentServerRunning(
+  sessionId: string,
+  projectPath: string,
+  projectName: string,
+  serverType?: string,
+  port?: number
+): Project {
+  const project = getOrCreateProject(projectPath, projectName);
+  const agents = project.agents as Map<string, Agent>;
+
+  let agent = agents.get(sessionId);
+  if (!agent) {
+    agent = {
+      id: sessionId,
+      name: 'main',
+      type: 'main',
+      status: 'working',
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+    };
+    agents.set(sessionId, agent);
+  }
+
+  agent.status = 'server_running';
+  // Store server info in currentActivity
+  const portInfo = port ? `:${port}` : '';
+  agent.currentActivity = `Server running${serverType ? ` (${serverType})` : ''}${portInfo}`;
+  agent.lastActivityAt = Date.now();
 
   updateProjectStatus(project);
   return project;

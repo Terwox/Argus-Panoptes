@@ -56,6 +56,19 @@
       window.open(vscodeUri, '_blank');
     }
 
+    // Force show bubble temporarily if it was suppressed (in decision mode but not blocked)
+    if (!bot.forceShowBubble && decisionMode && bot.agent.status !== 'blocked') {
+      bot.forceShowBubble = true;
+      bots = bots;
+      // Auto-hide after 5 seconds
+      setTimeout(() => {
+        if (bots[botIndex]) {
+          bots[botIndex].forceShowBubble = false;
+          bots = bots;
+        }
+      }, 5000);
+    }
+
     // Don't react if already reacting
     if (bot.reaction) return;
 
@@ -122,6 +135,7 @@
     relocateTargetX: number; // Target X when relocating
     relocateTargetY: number; // Target Y when relocating
     bobble: boolean; // Bobble animation trigger
+    forceShowBubble: boolean; // Temporarily force bubble visible when clicked
   }
 
   let bots: BotState[] = [];
@@ -169,13 +183,31 @@
   let DESK_POSITIONS: Record<string, { xPct: number; yPct: number }> = { ...BASE_DESK_POSITIONS };
 
   // Find open space for a new desk (avoiding existing desks and bots)
+  // DESIGN PRINCIPLE: NOTHING SHOULD OVERLAP
+  // Desk spacing must guarantee MIN_BOT_DISTANCE in pixels, not just percentages
   function findOpenSpaceForDesk(): { xPct: number; yPct: number } {
     const minXPct = 0.12; // Closer to edges
     const maxXPct = 0.92;
     const minYPct = 0.05;
     const maxYPct = 0.75; // Use more vertical space
-    const minDistPct = 0.20; // Minimum distance between desks
-    const conductorExclusionPct = 0.20; // Exclusion zone around conductor positions
+
+    // CRITICAL: Calculate minimum distance as percentage based on container size
+    // Must ensure MIN_BOT_DISTANCE (90px) + BOT_SIZE (56px) spacing in pixels
+    // Use the smaller dimension to be conservative
+    const minPixelDistance = MIN_BOT_DISTANCE + BOT_SIZE + 10; // Extra 10px buffer
+    const effectiveContainerSize = Math.min(containerWidth, containerHeight);
+    const minDistPct = Math.max(0.15, minPixelDistance / effectiveContainerSize);
+    const conductorExclusionPct = Math.max(0.20, (CONDUCTOR_EXCLUSION_DISTANCE + BOT_SIZE) / effectiveContainerSize);
+
+    // Also check against CURRENT bot positions, not just desk positions
+    // This prevents spawning on top of wandering bots
+    const botPositionsPct = bots
+      .filter(b => b.scale > 0.5) // Only consider visible bots
+      .map(b => ({
+        xPct: b.x / containerWidth,
+        yPct: b.y / containerHeight,
+        isMain: b.agent.type === 'main'
+      }));
 
     // Try random positions, check for overlap
     for (let attempt = 0; attempt < 50; attempt++) {
@@ -183,6 +215,8 @@
       const yPct = minYPct + Math.random() * (maxYPct - minYPct);
 
       let hasOverlap = false;
+
+      // Check against existing desks
       for (const [deskKey, desk] of Object.entries(DESK_POSITIONS)) {
         const dx = desk.xPct - xPct;
         const dy = desk.yPct - yPct;
@@ -195,18 +229,34 @@
         }
       }
 
+      // Also check against current bot positions
+      if (!hasOverlap) {
+        for (const botPos of botPositionsPct) {
+          const dx = botPos.xPct - xPct;
+          const dy = botPos.yPct - yPct;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const minDist = botPos.isMain ? conductorExclusionPct : minDistPct;
+          if (dist < minDist) {
+            hasOverlap = true;
+            break;
+          }
+        }
+      }
+
       if (!hasOverlap) {
         return { xPct, yPct };
       }
     }
 
     // Fallback: grid position based on desk count (offset past conductor slots)
+    // Use spacing that guarantees MIN_BOT_DISTANCE
+    const gridSpacingPct = Math.max(0.15, minDistPct);
     const subagentDeskCount = Object.keys(DESK_POSITIONS).filter(k => !k.startsWith('conductor_')).length;
     const col = subagentDeskCount % 3;
     const row = Math.floor(subagentDeskCount / 3);
     return {
-      xPct: Math.min(0.55 + col * 0.15, maxXPct), // Start further right to avoid conductor zone
-      yPct: Math.min(0.15 + row * 0.25, maxYPct),
+      xPct: Math.min(0.55 + col * gridSpacingPct, maxXPct), // Start further right to avoid conductor zone
+      yPct: Math.min(0.15 + row * gridSpacingPct, maxYPct),
     };
   }
 
@@ -319,6 +369,7 @@
           wanderTimer: 1000 + Math.random() * 2000, // Time until direction change
           bubbleTimer: 0, // Unused - bubbles always visible
           showBubble: true, // Always visible - no toggling
+          forceShowBubble: false, // Set to true when clicked to temporarily show bubble
           bubbleText: getTaskText(agent),
           scale: 0,
           spawning: true,
@@ -332,6 +383,7 @@
           relocateTargetX: 0,
           relocateTargetY: 0,
           bobble: false,
+          forceShowBubble: false,
         }];
       } else {
         // Update existing bot's agent data and bubble text
@@ -573,8 +625,10 @@
       bot.showBubble = true;
 
       // Update home position based on assigned desk (for responsive resizing)
-      const deskKey = bot.assignedDesk?.split('-')[0] || (isMain ? 'conductor' : 'worker');
-      const deskPos = DESK_POSITIONS[deskKey] || DESK_POSITIONS.worker;
+      const deskKey = bot.assignedDesk || (isMain ? 'conductor_0' : null);
+      // Use desk position if found, otherwise use center-right as fallback
+      const fallbackPos = { xPct: 0.6, yPct: 0.4 };
+      const deskPos = (deskKey && DESK_POSITIONS[deskKey]) || fallbackPos;
       bot.homeX = deskPos.xPct * containerWidth;
       bot.homeY = deskPos.yPct * containerHeight;
 
@@ -850,9 +904,9 @@
     const conductorCount = bots.filter(b => b.agent.type === 'main').length;
     const hasMultipleConductors = conductorCount > 1;
 
-    // DECISION MODE: Only show bubbles for blocked agents
+    // DECISION MODE: Only show bubbles for blocked agents (or clicked bots temporarily)
     const visibleBots = decisionMode
-      ? bots.filter(b => b.agent.status === 'blocked')
+      ? bots.filter(b => b.agent.status === 'blocked' || b.forceShowBubble)
       : bots;
 
     // Build list of obstacles: all bots, their name tags, and desks
@@ -1317,6 +1371,50 @@
               transform: translate(-50%, -50%) scale({1 + Math.sin(bot.conjureProgress * Math.PI * 4) * 0.3});
             "
           />
+        {:else if bot.conjureAnimation === 'assembly'}
+          <!-- Assembly - magical sparkles + rotating parts -->
+          <!-- Outer sparkle ring -->
+          <div
+            class="absolute -translate-x-1/2 -translate-y-1/2 w-20 h-20"
+            style="
+              opacity: {effectIntensity * 0.8};
+              transform: translate(-50%, -50%) rotate({bot.conjureProgress * 360}deg);
+            "
+          >
+            {#each [0, 60, 120, 180, 240, 300] as angle}
+              <div
+                class="absolute w-2 h-2 rounded-full bg-cyan-300"
+                style="
+                  left: 50%;
+                  top: 50%;
+                  transform: translate(-50%, -50%) rotate({angle}deg) translateY(-35px);
+                  opacity: {0.5 + Math.sin(bot.conjureProgress * Math.PI * 2 + angle * 0.01) * 0.5};
+                "
+              />
+            {/each}
+          </div>
+          <!-- Inner construction glow -->
+          <div
+            class="absolute -translate-x-1/2 -translate-y-1/2 w-14 h-14 rounded-lg"
+            style="
+              opacity: {effectIntensity};
+              background: radial-gradient(circle, rgba(34, 211, 238, 0.4) 0%, transparent 70%);
+              transform: translate(-50%, -50%) scale({0.8 + bot.conjureProgress * 0.4});
+              filter: blur(4px);
+            "
+          />
+          <!-- Assembly sparks flying in -->
+          {#each [0, 1, 2, 3] as i}
+            <div
+              class="absolute w-1.5 h-1.5 rounded-full bg-yellow-300"
+              style="
+                left: {50 + (Math.cos((i * 90 + bot.conjureProgress * 180) * Math.PI / 180) * (1 - bot.conjureProgress) * 60)}%;
+                top: {50 + (Math.sin((i * 90 + bot.conjureProgress * 180) * Math.PI / 180) * (1 - bot.conjureProgress) * 60)}%;
+                opacity: {effectIntensity * (1 - bot.conjureProgress * 0.5)};
+                transform: scale({0.5 + bot.conjureProgress});
+              "
+            />
+          {/each}
         {/if}
 
         <!-- Role announcement floating text -->

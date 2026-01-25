@@ -5,7 +5,7 @@
   import BlockedQuestion from './BlockedQuestion.svelte';
   import CuteWorld from './CuteWorld.svelte';
   import { bounce } from '../lib/bounce';
-  import { cuteMode, focusedProject, archiveProject, selectedProject } from '../stores/state';
+  import { cuteMode, focusedProject, archiveProject, layoutMode } from '../stores/state';
   import { toasts } from '../stores/toast';
 
   export let project: Project;
@@ -15,10 +15,35 @@
 
   $: agents = Object.values(project.agents);
   $: blockedAgent = agents.find((a) => a.status === 'blocked');
+  $: rateLimitedAgent = agents.find((a) => a.status === 'rate_limited');
+  $: serverAgent = agents.find((a) => a.status === 'server_running');
   $: isBlocked = project.status === 'blocked';
+  $: isRateLimited = project.status === 'rate_limited';
+  $: isServerRunning = project.status === 'server_running';
   $: isWorking = project.status === 'working';
   $: isFake = project.id.startsWith('fake-');
   $: isFocused = $focusedProject === project.id;
+
+  // Format rate limit reset time as friendly "Back at X:XX PM"
+  function formatResetTime(timestamp: number | undefined): string {
+    if (!timestamp) return 'Back soon...';
+    const resetDate = new Date(timestamp);
+    const now = Date.now();
+    const diffMs = timestamp - now;
+
+    // If less than 2 minutes, show "Back in X min"
+    if (diffMs < 2 * 60 * 1000) {
+      const mins = Math.max(1, Math.ceil(diffMs / 60000));
+      return `Back in ${mins} min`;
+    }
+
+    // Otherwise show time "Back at 2:30 PM"
+    return `Back at ${resetDate.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    })}`;
+  }
 
   // DESIGN PRINCIPLES:
   // - NO anxiety-inducing elements (no timers on blocked, no pulsing, no urgency)
@@ -30,15 +55,23 @@
     ? 'border-blue-500'
     : isBlocked
     ? 'border-blocked/50'
-    : isWorking
-      ? 'border-working/30'
-      : 'border-white/5';
+    : isRateLimited
+      ? 'border-sky-500/30'
+      : isServerRunning
+        ? 'border-emerald-500/30'
+        : isWorking
+          ? 'border-working/30'
+          : 'border-white/5';
 
   $: bgColor = isBlocked
     ? 'bg-blocked/5'
-    : isWorking
-      ? 'bg-working/5'
-      : 'bg-white/[0.02]';
+    : isRateLimited
+      ? 'bg-sky-500/5'
+      : isServerRunning
+        ? 'bg-emerald-500/5'
+        : isWorking
+          ? 'bg-working/5'
+          : 'bg-white/[0.02]';
 
   $: opacityClass = dimmed
     ? (isBlocked ? 'opacity-50' : 'opacity-30')
@@ -72,17 +105,22 @@
   }
 
   function handleCardClick() {
-    selectedProject.set(project.id);
+    // DESIGN PRINCIPLE: Pointer cursor = exit action only
+    // Card click just focuses/selects the project - doesn't navigate away
+    // Use explicit "VS Code" button to open project
+    toggleFocus();
   }
 </script>
 
 <div
   class="rounded-xl border-2 {borderColor} {bgColor} {opacityClass} p-4 transition-all duration-200 flex flex-col
-         hover:border-white/30 hover:bg-white/[0.04]
+         hover:border-white/30 hover:bg-white/[0.04] hover:shadow-lg hover:shadow-white/5
          {selected ? 'ring-2 ring-blue-500' : ''}
-         {isBlocked ? 'md:col-span-2 lg:col-span-2' : ''}"
+         {(isBlocked || isFocused) && $layoutMode !== 'compact' ? 'md:col-span-2 lg:col-span-2' : ''}
+         {isFocused && !isBlocked ? 'ring-2 ring-blue-400/50 shadow-xl shadow-blue-500/10' : ''}
+         {$layoutMode === 'compact' ? 'max-w-[350px] mx-auto w-full' : ''}"
   on:click={handleCardClick}
-  role="button"
+  role="region"
   tabindex="0"
   on:keydown={(e) => e.key === 'Enter' && handleCardClick()}
 >
@@ -103,6 +141,16 @@
               : 'Needs input'}
           <span class="text-blocked text-sm font-normal" title={displayText}>
             {displayText.slice(0, 40)}{displayText.length > 40 ? '...' : ''}
+          </span>
+        {:else if isRateLimited}
+          <!-- DESIGN: Calm "waiting for quota" - no anxiety, just a friendly timer -->
+          <span class="text-sky-400 text-sm font-normal" title="Rate limited - waiting for quota to reset">
+            ☕ {formatResetTime(rateLimitedAgent?.rateLimitResetAt)}
+          </span>
+        {:else if isServerRunning}
+          <!-- DESIGN: Calm "server running" - ambient background process -->
+          <span class="text-emerald-400 text-sm font-normal" title={serverAgent?.currentActivity || 'Server running'}>
+            🖥️ {serverAgent?.currentActivity || 'Server running'}
           </span>
         {:else if isWorking}
           <!-- DESIGN: NO VISIBLE TIMERS - no anxiety -->
@@ -163,9 +211,9 @@
 
   <!-- Agent display -->
   <!-- DESIGN: Cards shrink to fit viewport (no-scroll design), min-h-0 allows flex shrinking -->
-  <div class="flex-1 min-h-0">
+  <div class="flex-1 min-h-0 {$layoutMode === 'compact' ? 'max-h-[300px]' : ''}">
     {#if $cuteMode && detailed}
-      <CuteWorld {agents} fillHeight={true} />
+      <CuteWorld {agents} fillHeight={true} compact={$layoutMode === 'compact'} projectPath={project.path} />
     {:else if detailed}
       <AgentTree {agents} />
     {:else}

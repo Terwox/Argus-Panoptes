@@ -2,13 +2,34 @@
   /**
    * CompletedWorkInbox - Shows recently completed work from agents
    * Displays as a full grid cell card (equal to project cards)
+   *
+   * UPDATED: Now emits toast notifications instead of showing persistent panel
    */
   import type { CompletedWorkItem } from '../../../shared/types';
   import CuteBot from './CuteBot.svelte';
+  import { toasts } from '../stores/toast';
+  import { onMount } from 'svelte';
 
   export let items: CompletedWorkItem[] = [];
 
   // DESIGN: NO VISIBLE TIMERS - no "47s ago" anxiety counters
+
+  // Track which items we've already shown toasts for
+  let shownToasts = new Set<string>();
+
+  // Watch for new items and emit toasts
+  $: {
+    items.forEach(item => {
+      if (!shownToasts.has(item.id)) {
+        shownToasts.add(item.id);
+        // Only emit toast for items added after initial load
+        // Toasts are temporary (15s), so be verbose - show full task up to 150 chars
+        if (shownToasts.size > 1) {
+          toasts.addCompletion(item.projectName, cleanName(item.agentName), truncate(item.task, 150));
+        }
+      }
+    });
+  }
 
   // Clean agent name (remove prefixes)
   function cleanName(name: string): string {

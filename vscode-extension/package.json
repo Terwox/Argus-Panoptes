@@ -1,0 +1,106 @@
+{
+  "name": "argus-panoptes",
+  "displayName": "Argus Panoptes",
+  "description": "Calm, ambient dashboard for monitoring Claude Code sessions across multiple projects",
+  "version": "0.1.0",
+  "publisher": "argus-panoptes",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/argus-panoptes"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "monitoring",
+    "dashboard",
+    "ai"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "argus.openDashboard",
+        "title": "Open Dashboard",
+        "category": "Argus"
+      },
+      {
+        "command": "argus.toggleAutoContinue",
+        "title": "Toggle Auto-Continue",
+        "category": "Argus"
+      }
+    ],
+    "configuration": {
+      "title": "Argus Panoptes",
+      "properties": {
+        "argus.autoContinue.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically send 'continue' to rate-limited Claude Code terminals when the limit expires"
+        },
+        "argus.autoContinue.delayMs": {
+          "type": "number",
+          "default": 2000,
+          "description": "Delay in milliseconds before auto-continuing after rate limit expires"
+        },
+        "argus.server.port": {
+          "type": "number",
+          "default": 4242,
+          "description": "Port for the Argus server"
+        },
+        "argus.dashboard.openOnStartup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically open the dashboard when VS Code starts"
+        }
+      }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "argus.openDashboard",
+          "when": "true"
+        },
+        {
+          "command": "argus.toggleAutoContinue",
+          "when": "true"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "npm run build:extension && npm run build:webview",
+    "build:extension": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "build:webview": "cd .. && npm run build:client && cp -r dist/client vscode-extension/webview-dist",
+    "watch": "npm run watch:extension",
+    "watch:extension": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch",
+    "dev": "npm run watch:extension",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "esbuild": "^0.19.8",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.2"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.3.3",
+    "hono": "^4.0.0"
+  }
+}

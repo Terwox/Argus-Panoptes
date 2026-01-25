@@ -13,23 +13,66 @@
     completedWork,
     selectedProject,
     focusedProject,
+    layoutMode,
   } from './stores/state';
   import ProjectCard from './components/ProjectCard.svelte';
   import ViewToggle from './components/ViewToggle.svelte';
   import Scoreboard from './components/Scoreboard.svelte';
-  import CompletedWorkInbox from './components/CompletedWorkInbox.svelte';
   import HealthIndicator from './components/HealthIndicator.svelte';
   import Toast from './components/Toast.svelte';
   import KeyboardHelp from './components/KeyboardHelp.svelte';
+  import Settings from './components/Settings.svelte';
+  import { toasts } from './stores/toast';
+  import type { CompletedWorkItem } from '../../shared/types';
 
   let showHelp = false;
+  let showSettings = false;
+
+  // Track which completed items we've shown toasts for
+  let shownCompletionToasts = new Set<string>();
+
+  // Helper to clean agent name
+  function cleanAgentName(name: string): string {
+    return name.replace(/^oh-my-claudecode:/i, '').replace(/^omc:/i, '');
+  }
+
+  // Watch for new completed work items and emit toasts
+  $: {
+    $completedWork.forEach((item: CompletedWorkItem) => {
+      if (!shownCompletionToasts.has(item.id)) {
+        shownCompletionToasts.add(item.id);
+        // Only emit toast for items added after initial load
+        if (shownCompletionToasts.size > 1) {
+          const task = item.task.length > 60 ? item.task.slice(0, 60) + '...' : item.task;
+          toasts.addCompletion(item.projectName, cleanAgentName(item.agentName), task);
+        }
+      }
+    });
+  }
+
+  // Auto-detect compact mode threshold
+  const COMPACT_THRESHOLD = 600;
+
+  function updateLayoutMode() {
+    if (window.innerWidth < COMPACT_THRESHOLD) {
+      layoutMode.set('compact');
+    }
+    // Don't auto-switch back to grid - let user manually toggle if they want
+  }
 
   onMount(() => {
     connect();
+
+    // Auto-detect compact mode on load
+    updateLayoutMode();
+
+    // Listen for window resize
+    window.addEventListener('resize', updateLayoutMode);
   });
 
   onDestroy(() => {
     disconnect();
+    window.removeEventListener('resize', updateLayoutMode);
   });
 
   function toggleCute() {
@@ -80,9 +123,11 @@
       return;
     }
 
-    // Handle Escape to deselect / close help
+    // Handle Escape to deselect / close help / close settings
     if (e.key === 'Escape') {
-      if (showHelp) {
+      if (showSettings) {
+        showSettings = false;
+      } else if (showHelp) {
         showHelp = false;
       } else {
         selectedProject.set(null);
@@ -129,17 +174,19 @@
     });
   }
 
-  // Calculate grid layout based on project count and cute mode
-  // In cute mode: 2x2 grid (projects + completed work panel as 4th cell)
-  $: gridCols = $cuteMode && $viewMode === 'detailed'
+  // Calculate grid layout based on project count, cute mode, and layout mode
+  // In compact mode: vertical stack
+  // Single project: always full width
+  $: gridCols = $layoutMode === 'compact'
+    ? 'grid-cols-1'
+    : $sortedProjects.length === 1
+    ? 'grid-cols-1' // Single project fills full width
+    : $cuteMode && $viewMode === 'detailed'
     ? 'grid-cols-1 md:grid-cols-2'
     : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
 
-  // Hide Completed Work when 4+ projects (save space)
-  $: showCompletedWork = $cuteMode && $sortedProjects.length < 4;
-
-  // Total cells includes Completed Work panel only when shown
-  $: totalCells = showCompletedWork ? $sortedProjects.length + 1 : $sortedProjects.length;
+  // Total cells = just projects (CompletedWork now shows as toasts)
+  $: totalCells = $sortedProjects.length;
 
   // DESIGN PRINCIPLE: No scrolling unless >4 cells
   // Cards should shrink to fit viewport, not overflow
@@ -181,6 +228,14 @@
         >
           {$connected ? 'Connected' : 'Disconnected'}
         </span>
+        {#if $completedWork.length > 0}
+          <span
+            class="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20"
+            title="Tasks completed this session"
+          >
+            {$completedWork.length} completed
+          </span>
+        {/if}
       </div>
 
       <div class="flex items-center gap-4">
@@ -213,6 +268,17 @@
             🎭
           </button>
         {/if}
+
+        <!-- Settings Button -->
+        <button
+          class="px-2 py-1 text-sm rounded-lg transition-colors {showSettings
+            ? 'bg-blue-500/20 text-blue-300'
+            : 'bg-white/5 text-gray-400 hover:bg-white/10'}"
+          on:click={() => showSettings = !showSettings}
+          title="Settings"
+        >
+          ⚙️
+        </button>
       </div>
     </div>
   </header>
@@ -255,11 +321,6 @@
               dimmed={$focusedProject !== null && project.id !== $focusedProject}
             />
           {/each}
-
-          <!-- Completed Work as 4th cell (hidden when 4+ projects to save space) -->
-          {#if showCompletedWork}
-            <CompletedWorkInbox items={$completedWork} />
-          {/if}
         </div>
       {/if}
     </div>
@@ -270,4 +331,7 @@
 
   <!-- Keyboard Help Overlay -->
   <KeyboardHelp show={showHelp} on:close={() => showHelp = false} />
+
+  <!-- Settings Panel -->
+  <Settings bind:open={showSettings} />
 </div>

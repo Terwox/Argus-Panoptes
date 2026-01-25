@@ -61,7 +61,7 @@ export const WANDER_BOUNDS = {
 /** Conductor position (as % of container) */
 export const CONDUCTOR_POSITION = {
   X_PCT: 0.10,
-  Y_PCT: 0.42, // At 42%, even a 180px container has room for 75px bubble above
+  Y_PCT: 0.32, // Below the top-fixed bubble (bubble at y=8, ~60px tall, conductor below)
 } as const;
 
 /** Restlessness detection for desk relocation */
@@ -122,7 +122,7 @@ export const HAPPY_EMOJIS = [
 
 /** Available conjure animation styles */
 export const CONJURE_ANIMATIONS = [
-  'classic', 'teleport', 'factory', 'inflate', 'pixel', 'spring'
+  'classic', 'teleport', 'factory', 'inflate', 'pixel', 'spring', 'assembly'
 ] as const;
 
 export type ConjureAnimation = typeof CONJURE_ANIMATIONS[number];

@@ -23,6 +23,7 @@ interface ToolInput {
   prompt?: string;
   description?: string;
   subagent_type?: string;
+  run_in_background?: boolean;
 }
 
 interface ContentBlock {
@@ -168,6 +169,229 @@ function checkPendingAskUserQuestion(transcriptPath: string): string | null {
             }
           }
         }
+      } catch (e) {
+        // Skip malformed lines
+      }
+    }
+  } catch (e) {
+    // Ignore read errors
+  }
+  return null;
+}
+
+interface RateLimitInfo {
+  isRateLimited: boolean;
+  resetAt?: number; // Estimated reset timestamp
+  message?: string; // The rate limit message
+}
+
+/**
+ * Check if a transcript shows rate limiting
+ * Looks for common rate limit patterns in recent messages
+ */
+function checkRateLimit(transcriptPath: string): RateLimitInfo | null {
+  try {
+    const content = readFileSync(transcriptPath, 'utf8');
+    const lines = content.trim().split('\n');
+
+    // Rate limit patterns to detect
+    const rateLimitPatterns = [
+      /you['']ve hit your (usage |rate )?limit/i,
+      /rate limit(ed| exceeded)/i,
+      /too many requests/i,
+      /please (wait|try again)/i,
+      /quota exceeded/i,
+      /overloaded/i,
+      /capacity/i,
+      /429/i, // HTTP 429 Too Many Requests
+    ];
+
+    // Time patterns to extract reset time (e.g., "try again in 5 minutes", "resets at 2:00 PM")
+    const timePatterns = [
+      /(?:in|after)\s+(\d+)\s*(minute|min|second|sec|hour|hr)s?/i,
+      /(?:at|around)\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+      /(?:reset|available|ready)\s+(?:in|at)\s+(.+?)(?:\.|$)/i,
+    ];
+
+    // Check last 15 lines for rate limit messages
+    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 15); i--) {
+      try {
+        const entry = JSON.parse(lines[i]) as TranscriptEntry;
+
+        // Check system messages (API errors often come as system messages)
+        if (entry.type === 'system' && entry.message) {
+          const msg = typeof entry.message === 'string' ? entry.message : JSON.stringify(entry.message);
+          for (const pattern of rateLimitPatterns) {
+            if (pattern.test(msg)) {
+              return parseRateLimitMessage(msg, timePatterns);
+            }
+          }
+        }
+
+        // Check assistant messages for rate limit errors
+        if (entry.type === 'assistant' && entry.message?.content) {
+          const content = entry.message.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'text' && block.text) {
+                for (const pattern of rateLimitPatterns) {
+                  if (pattern.test(block.text)) {
+                    return parseRateLimitMessage(block.text, timePatterns);
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // If we find a user message, stop looking (rate limit would be after last user input)
+        if (entry.type === 'user') break;
+      } catch (e) {
+        // Skip malformed lines
+      }
+    }
+  } catch (e) {
+    // Ignore read errors
+  }
+  return null;
+}
+
+/**
+ * Parse rate limit message to extract reset time
+ */
+function parseRateLimitMessage(msg: string, timePatterns: RegExp[]): RateLimitInfo {
+  const now = Date.now();
+  let resetAt: number | undefined;
+
+  // Try to extract time information
+  for (const pattern of timePatterns) {
+    const match = msg.match(pattern);
+    if (match) {
+      // "in X minutes/hours"
+      if (match[2]) {
+        const amount = parseInt(match[1], 10);
+        const unit = match[2].toLowerCase();
+        if (unit.startsWith('min')) {
+          resetAt = now + amount * 60 * 1000;
+        } else if (unit.startsWith('sec')) {
+          resetAt = now + amount * 1000;
+        } else if (unit.startsWith('hour') || unit.startsWith('hr')) {
+          resetAt = now + amount * 60 * 60 * 1000;
+        }
+        break;
+      }
+      // "at X:XX PM"
+      if (match[1] && match[2] && !match[2].includes(':')) {
+        let hours = parseInt(match[1], 10);
+        const minutes = parseInt(match[2], 10);
+        if (match[3]?.toLowerCase() === 'pm' && hours < 12) hours += 12;
+        if (match[3]?.toLowerCase() === 'am' && hours === 12) hours = 0;
+
+        const resetDate = new Date();
+        resetDate.setHours(hours, minutes, 0, 0);
+        if (resetDate.getTime() < now) {
+          // If the time is in the past, assume it's tomorrow
+          resetDate.setDate(resetDate.getDate() + 1);
+        }
+        resetAt = resetDate.getTime();
+        break;
+      }
+    }
+  }
+
+  // Default to 5 minutes if no time found
+  if (!resetAt) {
+    resetAt = now + 5 * 60 * 1000;
+  }
+
+  return {
+    isRateLimited: true,
+    resetAt,
+    message: msg.slice(0, 100),
+  };
+}
+
+interface ServerRunningInfo {
+  isServer: boolean;
+  serverType?: string; // 'dev', 'web', 'api', etc.
+  port?: number;
+}
+
+/**
+ * Check if a transcript shows a running server/daemon
+ * Looks for patterns indicating long-running processes
+ */
+function checkServerRunning(transcriptPath: string): ServerRunningInfo | null {
+  try {
+    const content = readFileSync(transcriptPath, 'utf8');
+    const lines = content.trim().split('\n');
+
+    // Server command patterns
+    const serverCommandPatterns = [
+      /\bnpm run (dev|start|serve)\b/i,
+      /\bnpx (vite|next|create-react-app)\b/i,
+      /\bnode\s+[\w./]+server/i,
+      /\bpython\s+-m\s+(flask|uvicorn|http\.server)/i,
+      /\bcargo run\b/i,
+      /\bgo run\b.*server/i,
+      /\bdocker(-compose)?\s+(up|run)/i,
+    ];
+
+    // Server running output patterns
+    const serverOutputPatterns = [
+      { pattern: /listening on (?:port\s+)?(\d+)/i, type: 'web' },
+      { pattern: /server (?:is )?(?:running|started|listening)/i, type: 'web' },
+      { pattern: /local:\s+https?:\/\/localhost[:\d]*/i, type: 'dev' },
+      { pattern: /network:\s+https?:\/\//i, type: 'dev' },
+      { pattern: /ready in \d+(?:ms|s)/i, type: 'dev' },
+      { pattern: /vite.*ready/i, type: 'dev' },
+      { pattern: /next\.js.*ready/i, type: 'dev' },
+      { pattern: /started (?:development )?server/i, type: 'dev' },
+    ];
+
+    // Check last 30 lines for server indicators
+    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 30); i--) {
+      try {
+        const entry = JSON.parse(lines[i]) as TranscriptEntry;
+
+        // Check for Bash commands that start servers
+        if (entry.type === 'assistant' && entry.message?.content) {
+          const msgContent = entry.message.content;
+          if (Array.isArray(msgContent)) {
+            for (const block of msgContent) {
+              if (block.type === 'tool_use' && block.name === 'Bash' && block.input?.command) {
+                const cmd = block.input.command;
+                for (const pattern of serverCommandPatterns) {
+                  if (pattern.test(cmd)) {
+                    // Check if it's a background task
+                    if (block.input.run_in_background) {
+                      return { isServer: true, serverType: 'dev' };
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Check for server output in tool results or system messages
+        if (entry.type === 'system' && entry.message) {
+          const msg = typeof entry.message === 'string' ? entry.message : JSON.stringify(entry.message);
+          for (const { pattern, type } of serverOutputPatterns) {
+            const match = msg.match(pattern);
+            if (match) {
+              const port = msg.match(/:\s*(\d{4,5})\b/)?.[1];
+              return {
+                isServer: true,
+                serverType: type,
+                port: port ? parseInt(port, 10) : undefined,
+              };
+            }
+          }
+        }
+
+        // If we find user input, stop looking (server would have started before)
+        if (entry.type === 'user') break;
       } catch (e) {
         // Skip malformed lines
       }
@@ -477,16 +701,32 @@ export function checkPendingQuestions(): number {
             state.onAgentBlocked(sessionId, cwd, projectName, pendingQuestion, activityResult?.activity);
             updatedCount++;
           } else {
-            // No pending question - check if we should unblock
-            // This handles the case where a question was answered but hooks didn't fire
-            const project = state.getProject(cwd);
-            if (project) {
-              const agents = project.agents as Map<string, { status: string }>;
-              const agent = agents.get(sessionId);
-              if (agent && agent.status === 'blocked') {
-                // Agent was blocked but no longer has a pending question - unblock them
-                state.onAgentUnblocked(sessionId, cwd, projectName);
+            // Check for rate limit BEFORE checking for unblock
+            const rateLimitInfo = checkRateLimit(transcriptPath);
+            if (rateLimitInfo?.isRateLimited) {
+              // Agent is rate limited - calm "waiting for quota" state
+              state.onAgentRateLimited(sessionId, cwd, projectName, rateLimitInfo.resetAt, rateLimitInfo.message);
+              updatedCount++;
+            } else {
+              // Check for server running
+              const serverInfo = checkServerRunning(transcriptPath);
+              if (serverInfo?.isServer) {
+                // Agent is running a server - calm ambient state
+                state.onAgentServerRunning(sessionId, cwd, projectName, serverInfo.serverType, serverInfo.port);
                 updatedCount++;
+              } else {
+                // No pending question, no rate limit, no server - check if we should unblock
+                // This handles the case where a question was answered but hooks didn't fire
+                const project = state.getProject(cwd);
+                if (project) {
+                  const agents = project.agents as Map<string, { status: string }>;
+                  const agent = agents.get(sessionId);
+                  if (agent && (agent.status === 'blocked' || agent.status === 'rate_limited' || agent.status === 'server_running')) {
+                    // Agent was in special state but no longer - return to working
+                    state.onAgentUnblocked(sessionId, cwd, projectName);
+                    updatedCount++;
+                  }
+                }
               }
             }
           }
