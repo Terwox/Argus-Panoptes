@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { AgentStatus } from '../../../shared/types';
 
   export let status: AgentStatus;
@@ -6,9 +7,57 @@
   export let isSleeping: boolean = false; // Show sleeping zzz animation
   export let size: 'xs' | 'sm' | 'md' | 'lg' = 'md';
   export let role: string = 'main'; // Agent role/type for the held object
+  export let conductorIndex: number = 0; // 0 = primary conductor, 1+ = secondary conductors
   export let conjuring: boolean = false; // Is this bot currently being conjured?
   export let conjureAnimation: 'classic' | 'teleport' | 'factory' | 'inflate' | 'pixel' | 'spring' = 'classic';
   export let conjureProgress: number = 0; // 0-1 progress of conjuration
+  export let bobble: boolean = false; // Trigger bobble animation (squash/stretch)
+
+  // Idle animations for conductor
+  type IdleAnimation =
+    | 'sleeping'
+    | 'reading'
+    | 'stretching'
+    | 'coffee'
+    | 'stargazing'
+    | 'polishing'
+    | 'doodling'
+    | 'pocket-watch'
+    | 'humming'
+    | 'meditating'
+    | 'pet'
+    | 'telescope'
+    | 'bed'
+    | 'doll'
+    | 'imaginary-friend'
+    | 'encouraging';
+
+  let idleAnimation: IdleAnimation | null = null;
+
+  // Select random idle animation when entering idle state
+  function selectRandomIdleAnimation(): IdleAnimation {
+    const animations: IdleAnimation[] = [
+      'sleeping', 'reading', 'stretching', 'coffee', 'stargazing',
+      'polishing', 'doodling', 'pocket-watch', 'humming', 'meditating',
+      'pet', 'telescope', 'bed', 'doll', 'imaginary-friend', 'encouraging'
+    ];
+    return animations[Math.floor(Math.random() * animations.length)];
+  }
+
+  // Watch for status changes to idle
+  $: {
+    if (status === 'idle' && roleCategory === 'conductor' && !conjuring) {
+      if (idleAnimation === null) {
+        idleAnimation = selectRandomIdleAnimation();
+      }
+    } else if (status !== 'idle') {
+      idleAnimation = null;
+    }
+  }
+
+  // For idle eyes
+  $: isIdle = status === 'idle';
+  $: idleEyesClosed = isIdle && (idleAnimation === 'sleeping' || idleAnimation === 'meditating' || idleAnimation === 'bed');
 
   const sizeClasses = {
     xs: 'w-4 h-4',
@@ -77,8 +126,12 @@
   // Body colors by role when working - each role has distinct identity
   // DESIGN: Only conductor gets blue body - makes main bot easy to identify at a glance
   // Other roles get colors that match their tool/personality
+  // Secondary conductors get a slightly different blue (>2x JND from primary)
+  const primaryConductorBlue = '#3b82f6';   // blue-500 - primary conductor
+  const secondaryConductorBlue = '#2563eb'; // blue-600 - secondary conductors (noticeable but still blue)
+
   const bodyColors: Record<string, string> = {
-    conductor: '#3b82f6',   // blue - special, easy to spot
+    conductor: primaryConductorBlue,   // blue - special, easy to spot (will be overridden for secondary)
     background: '#10b981',  // emerald - terminal green
     architect: '#6366f1',   // indigo - matches compass
     executor: '#64748b',    // slate - industrial workhorse
@@ -97,17 +150,23 @@
     worker: '#0d9488',      // teal - default
   };
 
-  // Bot colors
+  // Bot colors - secondary conductors get a different blue shade
+  $: workingColor = roleCategory === 'conductor' && conductorIndex > 0
+    ? secondaryConductorBlue
+    : bodyColors[roleCategory] || bodyColors.worker;
+
   $: bodyColor = status === 'blocked'
     ? '#f59e0b' // amber - all bots
     : status === 'working'
-      ? bodyColors[roleCategory] || bodyColors.worker
-      : '#22c55e'; // green for complete - all bots
+      ? workingColor
+      : status === 'idle'
+        ? '#6b7280' // gray for idle - calm, neutral
+        : '#22c55e'; // green for complete - all bots
 
   $: eyeColor = isTired ? '#999' : '#fff';
 </script>
 
-<div class="inline-flex items-center justify-center {sizeClasses[size]} {animationClass}">
+<div class="inline-flex items-center justify-center {sizeClasses[size]} {animationClass} {bobble ? 'animate-bobble' : ''}">
   <svg viewBox="0 0 100 100" class="w-full h-full">
     <!-- Body -->
     <rect
@@ -134,6 +193,10 @@
         <!-- Tired eyes (droopy) -->
         <line x1="32" y1="50" x2="42" y2="52" stroke={eyeColor} stroke-width="3" stroke-linecap="round" />
         <line x1="58" y1="52" x2="68" y2="50" stroke={eyeColor} stroke-width="3" stroke-linecap="round" />
+      {:else if idleEyesClosed}
+        <!-- Closed/sleeping eyes - peaceful -->
+        <line x1="32" y1="50" x2="42" y2="50" stroke={eyeColor} stroke-width="3" stroke-linecap="round" />
+        <line x1="58" y1="50" x2="68" y2="50" stroke={eyeColor} stroke-width="3" stroke-linecap="round" />
       {:else if status === 'blocked'}
         <!-- Wide open worried eyes -->
         <circle cx="37" cy="50" r="8" fill={eyeColor} />
@@ -144,6 +207,12 @@
         <!-- Happy closed eyes -->
         <path d="M 32 50 Q 37 45 42 50" stroke={eyeColor} stroke-width="3" fill="none" stroke-linecap="round" />
         <path d="M 58 50 Q 63 45 68 50" stroke={eyeColor} stroke-width="3" fill="none" stroke-linecap="round" />
+      {:else if isIdle}
+        <!-- Relaxed half-closed eyes for idle state -->
+        <ellipse cx="37" cy="50" rx="6" ry="4" fill={eyeColor} />
+        <ellipse cx="63" cy="50" rx="6" ry="4" fill={eyeColor} />
+        <ellipse cx="38" cy="51" rx="3" ry="2" fill="#333" />
+        <ellipse cx="64" cy="51" rx="3" ry="2" fill="#333" />
       {:else}
         <!-- Normal focused eyes -->
         <circle cx="37" cy="50" r="6" fill={eyeColor} />
@@ -161,8 +230,8 @@
       {:else if status === 'complete'}
         <!-- Big smile -->
         <path d="M 35 65 Q 50 78 65 65" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" />
-      {:else if isTired}
-        <!-- Small neutral mouth -->
+      {:else if isTired || isIdle}
+        <!-- Small neutral/content mouth -->
         <line x1="42" y1="68" x2="58" y2="68" stroke="#333" stroke-width="3" stroke-linecap="round" />
       {:else}
         <!-- Determined smile -->
@@ -288,6 +357,189 @@
       style="--part-delay: 0.1s;"
     />
   </svg>
+
+  <!-- Idle Animation Overlays -->
+  {#if idleAnimation && roleCategory === 'conductor'}
+    <div class="absolute inset-0 pointer-events-none">
+      {#if idleAnimation === 'sleeping'}
+        <!-- Floating Z's -->
+        <div class="idle-z idle-z1">Z</div>
+        <div class="idle-z idle-z2">Z</div>
+        <div class="idle-z idle-z3">Z</div>
+      {:else if idleAnimation === 'reading'}
+        <!-- Book held in hands -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(35, 55)">
+            <rect x="0" y="0" width="30" height="20" rx="2" fill="#8b4513" />
+            <line x1="15" y1="0" x2="15" y2="20" stroke="#654321" stroke-width="1" />
+            <rect x="2" y="3" width="11" height="1.5" fill="#f5f5dc" />
+            <rect x="2" y="6" width="11" height="1.5" fill="#f5f5dc" />
+            <rect x="2" y="9" width="9" height="1.5" fill="#f5f5dc" />
+            <rect x="17" y="3" width="11" height="1.5" fill="#f5f5dc" />
+            <rect x="17" y="6" width="10" height="1.5" fill="#f5f5dc" />
+            <rect x="17" y="9" width="11" height="1.5" fill="#f5f5dc" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'stretching'}
+        <!-- Arms raised overhead - modify arm positions -->
+        <svg viewBox="0 0 100 100" class="w-full h-full animate-stretch">
+          <rect x="15" y="35" width="12" height="6" rx="3" fill={bodyColor} transform="rotate(-45 21 38)" />
+          <rect x="73" y="35" width="12" height="6" rx="3" fill={bodyColor} transform="rotate(45 79 38)" />
+        </svg>
+      {:else if idleAnimation === 'coffee'}
+        <!-- Coffee mug with steam -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(60, 45)">
+            <ellipse cx="8" cy="10" rx="6" ry="5" fill="#8b4513" />
+            <ellipse cx="8" cy="9" rx="5" ry="4" fill="#3e2723" />
+            <path d="M 14 8 Q 17 8 17 11 Q 17 14 14 14" stroke="#8b4513" stroke-width="1.5" fill="none" />
+            <!-- Steam -->
+            <path d="M 5 4 Q 6 0 5 -2" stroke="#fff" stroke-width="0.8" fill="none" opacity="0.6" class="animate-steam" />
+            <path d="M 8 3 Q 9 -1 8 -3" stroke="#fff" stroke-width="0.8" fill="none" opacity="0.6" class="animate-steam" style="animation-delay: 0.3s" />
+            <path d="M 11 4 Q 12 0 11 -2" stroke="#fff" stroke-width="0.8" fill="none" opacity="0.6" class="animate-steam" style="animation-delay: 0.6s" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'stargazing'}
+        <!-- Stars floating around -->
+        <div class="idle-star idle-star1">✨</div>
+        <div class="idle-star idle-star2">⭐</div>
+        <div class="idle-star idle-star3">✨</div>
+        <div class="idle-star idle-star4">⭐</div>
+      {:else if idleAnimation === 'polishing'}
+        <!-- Baton with sparkles - animate the tool -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g class="animate-polish">
+            <circle cx="99" cy="28" r="4" fill="#ffd700" opacity="0.8" />
+            <circle cx="96" cy="26" r="2" fill="#fff" opacity="0.9" />
+            <circle cx="102" cy="30" r="2" fill="#fff" opacity="0.9" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'doodling'}
+        <!-- Notepad and pencil -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(55, 50)">
+            <rect x="0" y="0" width="20" height="25" rx="1" fill="#fff" stroke="#333" stroke-width="0.5" />
+            <line x1="2" y1="4" x2="18" y2="4" stroke="#333" stroke-width="0.5" opacity="0.5" />
+            <line x1="2" y1="7" x2="15" y2="7" stroke="#333" stroke-width="0.5" opacity="0.5" />
+            <line x1="2" y1="10" x2="17" y2="10" stroke="#333" stroke-width="0.5" opacity="0.5" />
+            <!-- Pencil -->
+            <rect x="15" y="15" width="2" height="12" fill="#fbbf24" transform="rotate(30 16 21)" />
+            <polygon points="15,27 16,30 17,27" fill="#f97316" transform="rotate(30 16 21)" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'pocket-watch'}
+        <!-- Pocket watch -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(60, 48)">
+            <circle cx="8" cy="10" r="7" fill="#c0c0c0" stroke="#808080" stroke-width="0.8" />
+            <circle cx="8" cy="10" r="5" fill="#f5f5f5" />
+            <line x1="8" y1="10" x2="8" y2="7" stroke="#333" stroke-width="0.8" />
+            <line x1="8" y1="10" x2="10" y2="10" stroke="#333" stroke-width="0.8" />
+            <line x1="8" y1="3" x2="8" y2="0" stroke="#c0c0c0" stroke-width="1" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'humming'}
+        <!-- Musical notes floating -->
+        <div class="idle-note idle-note1">♪</div>
+        <div class="idle-note idle-note2">♫</div>
+        <div class="idle-note idle-note3">♪</div>
+      {:else if idleAnimation === 'meditating'}
+        <!-- Om symbol -->
+        <div class="idle-om">ॐ</div>
+      {:else if idleAnimation === 'pet'}
+        <!-- Tiny creature (cat) -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(55, 75)" class="animate-pet-bounce">
+            <!-- Cat body -->
+            <ellipse cx="8" cy="2" rx="6" ry="4" fill="#ff9800" />
+            <!-- Cat head -->
+            <circle cx="8" cy="-2" r="3" fill="#ff9800" />
+            <!-- Ears -->
+            <polygon points="6,-4 5,-6 7,-5" fill="#ff9800" />
+            <polygon points="10,-4 11,-6 9,-5" fill="#ff9800" />
+            <!-- Eyes -->
+            <circle cx="7" cy="-2" r="0.5" fill="#333" />
+            <circle cx="9" cy="-2" r="0.5" fill="#333" />
+            <!-- Tail -->
+            <path d="M 14 2 Q 18 0 20 2" stroke="#ff9800" stroke-width="1.5" fill="none" stroke-linecap="round" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'telescope'}
+        <!-- Telescope -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(65, 40)">
+            <rect x="0" y="5" width="20" height="4" fill="#4a5568" transform="rotate(-20 10 7)" />
+            <circle cx="2" cy="6" r="3" fill="#2d3748" transform="rotate(-20 10 7)" />
+            <circle cx="18" cy="8" r="2" fill="#2d3748" transform="rotate(-20 10 7)" />
+            <!-- Stars visible through telescope -->
+            <circle cx="22" cy="4" r="0.5" fill="#ffd700" class="animate-twinkle" />
+            <circle cx="24" cy="2" r="0.5" fill="#ffd700" class="animate-twinkle" style="animation-delay: 0.3s" />
+            <circle cx="26" cy="5" r="0.5" fill="#ffd700" class="animate-twinkle" style="animation-delay: 0.6s" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'bed'}
+        <!-- Laying in bed -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(25, 65)">
+            <!-- Bed frame -->
+            <rect x="0" y="8" width="50" height="3" fill="#8b4513" />
+            <!-- Mattress -->
+            <rect x="2" y="2" width="46" height="6" rx="1" fill="#f5f5dc" />
+            <!-- Pillow -->
+            <ellipse cx="40" cy="3" rx="8" ry="3" fill="#fff" />
+            <!-- Blanket -->
+            <rect x="5" y="4" width="30" height="5" rx="1" fill="#6b7280" class="animate-breathe" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'doll'}
+        <!-- Playing with tiny robot doll -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(55, 55)" class="animate-doll-play">
+            <!-- Tiny robot doll -->
+            <rect x="0" y="0" width="8" height="6" rx="1" fill="#3b82f6" />
+            <circle cx="4" cy="2" r="1" fill="#fff" />
+            <circle cx="6" cy="2" r="1" fill="#fff" />
+            <rect x="1" y="6" width="2" height="3" fill="#1e1b4b" />
+            <rect x="5" y="6" width="2" height="3" fill="#1e1b4b" />
+            <circle cx="4" cy="-2" r="1" fill="#3b82f6" />
+            <line x1="4" y1="-2" x2="4" y2="0" stroke="#3b82f6" stroke-width="0.5" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'imaginary-friend'}
+        <!-- Conjuring imaginary friend with emojis -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(65, 45)">
+            <!-- Ghost friend -->
+            <path d="M 5 5 Q 0 5 0 10 L 0 20 L 2 18 L 4 20 L 6 18 L 8 20 L 10 18 L 10 10 Q 10 5 5 5 Z" fill="rgba(147, 197, 253, 0.4)" class="animate-ghost-float" />
+            <circle cx="3.5" cy="9" r="1" fill="#333" opacity="0.5" />
+            <circle cx="6.5" cy="9" r="1" fill="#333" opacity="0.5" />
+          </g>
+          <!-- Emoji speech from bot -->
+          <div class="idle-emoji idle-emoji1">👋</div>
+          <!-- Emoji reply from ghost -->
+          <div class="idle-emoji idle-emoji2">✨</div>
+        </svg>
+      {:else if idleAnimation === 'encouraging'}
+        <!-- Saying good job to another bot -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(65, 58)">
+            <!-- Tiny completed bot -->
+            <rect x="0" y="0" width="8" height="6" rx="1" fill="#22c55e" />
+            <circle cx="2.5" cy="2" r="0.8" fill="#fff" />
+            <circle cx="5.5" cy="2" r="0.8" fill="#fff" />
+            <!-- Happy mouth -->
+            <path d="M 2 4 Q 4 5.5 6 4" stroke="#333" stroke-width="0.5" fill="none" />
+            <rect x="1" y="6" width="2" height="3" fill="#14532d" />
+            <rect x="5" y="6" width="2" height="3" fill="#14532d" />
+            <!-- Checkmark above -->
+            <path d="M 1 -2 L 3 0 L 7 -4" stroke="#22c55e" stroke-width="1.5" fill="none" class="animate-check-draw" />
+          </g>
+          <!-- "Good job!" text -->
+          <div class="idle-encouragement">Good job!</div>
+        </svg>
+      {/if}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -486,5 +738,302 @@
     animation: conjure-spring 0.25s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
     animation-delay: var(--part-delay);
     opacity: 0;
+  }
+
+  /* Bobble animation - quick squash then stretch then settle */
+  @keyframes bobble {
+    0% { transform: scaleY(1); }
+    25% { transform: scaleY(0.8); }
+    50% { transform: scaleY(1.1); }
+    75% { transform: scaleY(0.95); }
+    100% { transform: scaleY(1); }
+  }
+
+  .animate-bobble {
+    animation: bobble 0.4s ease-out;
+  }
+
+  /* ===== IDLE ANIMATIONS ===== */
+
+  /* Sleeping Z's floating up */
+  @keyframes float-z {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, 0);
+    }
+    20% {
+      opacity: 1;
+    }
+    80% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-50%, -40px);
+    }
+  }
+
+  .idle-z {
+    position: absolute;
+    left: 70%;
+    top: 30%;
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.6);
+    animation: float-z 3s ease-in-out infinite;
+  }
+
+  .idle-z1 { animation-delay: 0s; }
+  .idle-z2 { animation-delay: 1s; font-size: 14px; left: 75%; }
+  .idle-z3 { animation-delay: 2s; font-size: 12px; left: 73%; }
+
+  /* Stretching animation */
+  @keyframes stretch {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+  }
+
+  .animate-stretch {
+    animation: stretch 2s ease-in-out infinite;
+  }
+
+  /* Coffee steam */
+  @keyframes steam {
+    0% {
+      opacity: 0;
+      transform: translateY(0);
+    }
+    30% {
+      opacity: 0.6;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+  }
+
+  .animate-steam {
+    animation: steam 2s ease-in-out infinite;
+  }
+
+  /* Stargazing stars */
+  @keyframes float-star {
+    0%, 100% {
+      opacity: 0.4;
+      transform: translate(0, 0) scale(0.8);
+    }
+    50% {
+      opacity: 1;
+      transform: translate(0, -5px) scale(1);
+    }
+  }
+
+  .idle-star {
+    position: absolute;
+    font-size: 18px;
+    animation: float-star 3s ease-in-out infinite;
+  }
+
+  .idle-star1 { top: 15%; left: 30%; animation-delay: 0s; }
+  .idle-star2 { top: 25%; left: 70%; animation-delay: 0.8s; }
+  .idle-star3 { top: 10%; left: 50%; animation-delay: 1.6s; }
+  .idle-star4 { top: 30%; left: 85%; animation-delay: 2.4s; }
+
+  /* Polishing sparkles */
+  @keyframes polish {
+    0%, 100% {
+      opacity: 0;
+      transform: scale(0.5);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.2);
+    }
+  }
+
+  .animate-polish {
+    animation: polish 1.5s ease-in-out infinite;
+  }
+
+  /* Musical notes */
+  @keyframes float-note {
+    0% {
+      opacity: 0;
+      transform: translate(0, 0) rotate(0deg);
+    }
+    20% {
+      opacity: 1;
+    }
+    80% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translate(10px, -35px) rotate(15deg);
+    }
+  }
+
+  .idle-note {
+    position: absolute;
+    left: 75%;
+    top: 35%;
+    font-size: 20px;
+    color: rgba(147, 197, 253, 0.8);
+    animation: float-note 3s ease-in-out infinite;
+  }
+
+  .idle-note1 { animation-delay: 0s; }
+  .idle-note2 { animation-delay: 1s; left: 70%; }
+  .idle-note3 { animation-delay: 2s; left: 80%; }
+
+  /* Om symbol meditation */
+  @keyframes meditate-om {
+    0%, 100% {
+      opacity: 0.3;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    50% {
+      opacity: 0.7;
+      transform: translate(-50%, -50%) scale(1.1);
+    }
+  }
+
+  .idle-om {
+    position: absolute;
+    left: 50%;
+    top: 20%;
+    font-size: 24px;
+    color: rgba(147, 51, 234, 0.6);
+    animation: meditate-om 4s ease-in-out infinite;
+  }
+
+  /* Pet bouncing */
+  @keyframes pet-bounce {
+    0%, 100% { transform: translate(55px, 75px) translateY(0); }
+    50% { transform: translate(55px, 75px) translateY(-3px); }
+  }
+
+  .animate-pet-bounce {
+    animation: pet-bounce 1s ease-in-out infinite;
+  }
+
+  /* Telescope stars twinkling */
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+  }
+
+  .animate-twinkle {
+    animation: twinkle 1.5s ease-in-out infinite;
+  }
+
+  /* Bed breathing (blanket rising/falling) */
+  @keyframes breathe {
+    0%, 100% { transform: scaleY(1); }
+    50% { transform: scaleY(1.15); }
+  }
+
+  .animate-breathe {
+    animation: breathe 3s ease-in-out infinite;
+    transform-origin: center;
+  }
+
+  /* Doll playing (bouncing up and down) */
+  @keyframes doll-play {
+    0%, 100% { transform: translate(55px, 55px) rotate(0deg); }
+    25% { transform: translate(55px, 52px) rotate(-5deg); }
+    75% { transform: translate(55px, 52px) rotate(5deg); }
+  }
+
+  .animate-doll-play {
+    animation: doll-play 1.5s ease-in-out infinite;
+  }
+
+  /* Ghost floating */
+  @keyframes ghost-float {
+    0%, 100% {
+      transform: translate(65px, 45px) translateY(0);
+      opacity: 0.4;
+    }
+    50% {
+      transform: translate(65px, 45px) translateY(-5px);
+      opacity: 0.6;
+    }
+  }
+
+  .animate-ghost-float {
+    animation: ghost-float 2.5s ease-in-out infinite;
+  }
+
+  /* Emoji speech bubbles */
+  @keyframes emoji-appear {
+    0% {
+      opacity: 0;
+      transform: scale(0.5);
+    }
+    20%, 80% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(0.5);
+    }
+  }
+
+  .idle-emoji {
+    position: absolute;
+    font-size: 16px;
+    animation: emoji-appear 4s ease-in-out infinite;
+  }
+
+  .idle-emoji1 {
+    left: 60%;
+    top: 40%;
+    animation-delay: 0s;
+  }
+
+  .idle-emoji2 {
+    left: 75%;
+    top: 35%;
+    animation-delay: 2s;
+  }
+
+  /* Checkmark drawing */
+  @keyframes check-draw {
+    0%, 100% {
+      stroke-dasharray: 10;
+      stroke-dashoffset: 10;
+    }
+    50% {
+      stroke-dasharray: 10;
+      stroke-dashoffset: 0;
+    }
+  }
+
+  .animate-check-draw {
+    animation: check-draw 2s ease-in-out infinite;
+  }
+
+  /* Good job encouragement text */
+  @keyframes encouragement-fade {
+    0%, 100% {
+      opacity: 0;
+      transform: translate(-50%, 0);
+    }
+    20%, 80% {
+      opacity: 1;
+      transform: translate(-50%, -5px);
+    }
+  }
+
+  .idle-encouragement {
+    position: absolute;
+    left: 75%;
+    top: 45%;
+    font-size: 10px;
+    font-weight: bold;
+    color: rgba(34, 197, 94, 0.8);
+    white-space: nowrap;
+    animation: encouragement-fade 3s ease-in-out infinite;
   }
 </style>

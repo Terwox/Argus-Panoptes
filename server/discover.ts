@@ -55,11 +55,12 @@ function projectNameFromPath(path: string): string {
 }
 
 /**
- * Find the most recent transcript file in a project directory (if active)
+ * Find ALL recently active transcript files in a project directory
+ * MULTIPLE CONDUCTORS: Returns all transcripts modified within RECENT_THRESHOLD
  */
-function findMostRecentTranscript(projectDir: string): string | null {
+function findActiveTranscripts(projectDir: string): string[] {
   const now = Date.now();
-  let mostRecent: { path: string; mtime: number } | null = null;
+  const activeTranscripts: string[] = [];
 
   try {
     const files = readdirSync(projectDir);
@@ -70,22 +71,26 @@ function findMostRecentTranscript(projectDir: string): string | null {
         const filePath = join(projectDir, file);
         const stats = statSync(filePath);
 
-        // Track the most recently modified
-        if (!mostRecent || stats.mtimeMs > mostRecent.mtime) {
-          mostRecent = { path: filePath, mtime: stats.mtimeMs };
+        // Include if modified recently enough (active session)
+        if (now - stats.mtimeMs < RECENT_THRESHOLD) {
+          activeTranscripts.push(filePath);
         }
       }
-    }
-
-    // Only return if modified recently enough
-    if (mostRecent && now - mostRecent.mtime < RECENT_THRESHOLD) {
-      return mostRecent.path;
     }
   } catch (e) {
     // Directory might not exist or be inaccessible
   }
 
-  return null;
+  return activeTranscripts;
+}
+
+/**
+ * Find the most recent transcript file in a project directory (if active)
+ * @deprecated Use findActiveTranscripts for multi-conductor support
+ */
+function findMostRecentTranscript(projectDir: string): string | null {
+  const transcripts = findActiveTranscripts(projectDir);
+  return transcripts.length > 0 ? transcripts[0] : null;
 }
 
 /**
@@ -173,16 +178,23 @@ function checkPendingAskUserQuestion(transcriptPath: string): string | null {
   return null;
 }
 
+interface ActivityResult {
+  activity: string;
+  lineNumber: number;
+}
+
 /**
  * Extract current activity from a transcript (most recent meaningful action)
  * Looks for: TodoWrite in_progress items, recent tool calls, assistant text, etc.
+ * Returns both the activity text AND the line number for navigation.
  */
-function extractCurrentActivity(transcriptPath: string): string | null {
+function extractCurrentActivity(transcriptPath: string): ActivityResult | null {
   try {
     const content = readFileSync(transcriptPath, 'utf8');
     const lines = content.trim().split('\n');
 
     let lastAssistantText: string | null = null;
+    let lastAssistantLine: number | null = null;
 
     // Read from end to find recent assistant messages
     for (let i = lines.length - 1; i >= Math.max(0, lines.length - 30); i--) {
@@ -193,6 +205,9 @@ function extractCurrentActivity(transcriptPath: string): string | null {
           const msgContent = entry.message.content;
           if (!Array.isArray(msgContent)) continue;
 
+          // Line numbers are 1-indexed for VS Code
+          const lineNumber = i + 1;
+
           // Look for tool calls in this message
           for (const block of msgContent) {
             // Detect thinking blocks - show the stream of thought
@@ -202,9 +217,9 @@ function extractCurrentActivity(transcriptPath: string): string | null {
               if (thinkingLines.length > 0) {
                 // Show last meaningful line (most recent thought), limited to reasonable length
                 const lastLine = thinkingLines[thinkingLines.length - 1].slice(0, 120);
-                return `💭 ${lastLine}`;
+                return { activity: `💭 ${lastLine}`, lineNumber };
               }
-              return '💭 Thinking...';
+              return { activity: '💭 Thinking...', lineNumber };
             }
 
             // Capture text blocks as fallback (first one found from end)
@@ -213,6 +228,7 @@ function extractCurrentActivity(transcriptPath: string): string | null {
               const textLines = block.text.trim().split('\n').filter((l: string) => l.trim());
               if (textLines.length > 0) {
                 lastAssistantText = textLines[0].slice(0, 100);
+                lastAssistantLine = lineNumber;
               }
             }
 
@@ -225,62 +241,62 @@ function extractCurrentActivity(transcriptPath: string): string | null {
             if (toolName === 'TodoWrite' && input?.todos) {
               const inProgress = input.todos.find((t: { status?: string }) => t.status === 'in_progress');
               if (inProgress?.activeForm) {
-                return inProgress.activeForm;
+                return { activity: inProgress.activeForm, lineNumber };
               }
               if (inProgress?.content) {
-                return inProgress.content;
+                return { activity: inProgress.content, lineNumber };
               }
             }
 
             // Task - spawning subagent
             if (toolName === 'Task' && input?.description) {
-              return `Delegating: ${input.description}`;
+              return { activity: `Delegating: ${input.description}`, lineNumber };
             }
 
             // Edit/Write - modifying file
             if ((toolName === 'Edit' || toolName === 'Write') && input?.file_path) {
               const fileName = basename(input.file_path);
-              return `Editing ${fileName}`;
+              return { activity: `Editing ${fileName}`, lineNumber };
             }
 
             // Read - reading file
             if (toolName === 'Read' && input?.file_path) {
               const fileName = basename(input.file_path);
-              return `Reading ${fileName}`;
+              return { activity: `Reading ${fileName}`, lineNumber };
             }
 
             // Bash - running command
             if (toolName === 'Bash') {
               if (input?.description) {
-                return input.description.slice(0, 60);
+                return { activity: input.description.slice(0, 60), lineNumber };
               }
               if (input?.command) {
                 const cmd = input.command.slice(0, 40);
-                return `Running: ${cmd}${input.command.length > 40 ? '...' : ''}`;
+                return { activity: `Running: ${cmd}${input.command.length > 40 ? '...' : ''}`, lineNumber };
               }
             }
 
             // Grep/Glob - searching
             if (toolName === 'Grep' && input?.pattern) {
-              return `Searching for "${input.pattern.slice(0, 30)}"`;
+              return { activity: `Searching for "${input.pattern.slice(0, 30)}"`, lineNumber };
             }
             if (toolName === 'Glob' && input?.pattern) {
-              return `Finding files: ${input.pattern}`;
+              return { activity: `Finding files: ${input.pattern}`, lineNumber };
             }
 
             // WebSearch/WebFetch
             if (toolName === 'WebSearch') {
-              return 'Searching the web...';
+              return { activity: 'Searching the web...', lineNumber };
             }
             if (toolName === 'WebFetch') {
-              return 'Fetching web content...';
+              return { activity: 'Fetching web content...', lineNumber };
             }
 
             // AskUserQuestion - capture the question being asked
             if (toolName === 'AskUserQuestion' && input?.questions) {
               const questions = input.questions as Array<{ question?: string }>;
               if (questions.length > 0 && questions[0].question) {
-                return questions[0].question.slice(0, 100);
+                return { activity: questions[0].question.slice(0, 100), lineNumber };
               }
             }
           }
@@ -291,7 +307,9 @@ function extractCurrentActivity(transcriptPath: string): string | null {
     }
 
     // Fallback: return assistant text if no tool activity found
-    return lastAssistantText;
+    if (lastAssistantText && lastAssistantLine) {
+      return { activity: lastAssistantText, lineNumber: lastAssistantLine };
+    }
   } catch (e) {
     // Ignore read errors
   }
@@ -395,68 +413,86 @@ export function checkPendingQuestions(): number {
         continue;
       }
 
-      // Find ONLY the most recently modified transcript in this project
-      const transcriptPath = findMostRecentTranscript(projectDir);
-      if (!transcriptPath) continue;
+      // MULTIPLE CONDUCTORS: Find ALL active transcripts in this project
+      const transcriptPaths = findActiveTranscripts(projectDir);
+      if (transcriptPaths.length === 0) continue;
 
-      try {
-        // Parse transcript to get session info (reads cwd from transcript, not path decoding)
-        const info = parseTranscript(transcriptPath);
-        if (!info) continue;
+      // Process each active transcript (each represents a Claude Code session)
+      for (const transcriptPath of transcriptPaths) {
+        try {
+          // Parse transcript to get session info (reads cwd from transcript, not path decoding)
+          const info = parseTranscript(transcriptPath);
+          if (!info) continue;
 
-        const { sessionId, cwd } = info;
-        const projectName = projectNameFromPath(cwd);
+          const { sessionId, cwd } = info;
+          const projectName = projectNameFromPath(cwd);
 
-        // Register session if it doesn't exist yet
-        // This catches sessions that started after Argus or where hooks didn't fire
-        const existingProject = state.getProject(cwd);
-        if (!existingProject) {
-          const task = extractTaskFromTranscript(transcriptPath);
-          state.onSessionStart(sessionId, cwd, projectName, task ?? undefined);
-          updatedCount++;
-        } else {
-          // Try to extract and update task for sessions missing it
-          const task = extractTaskFromTranscript(transcriptPath);
-          if (task) {
-            state.updateSessionTask(sessionId, cwd, task);
-          }
-        }
-
-        // Extract current activity (what they're doing now)
-        const activity = extractCurrentActivity(transcriptPath);
-        if (activity) {
-          const activityChanged = state.updateCurrentActivity(sessionId, cwd, activity);
-          if (activityChanged) updatedCount++;
-        }
-
-        // Extract last user message
-        const lastUserMessage = extractLastUserMessage(transcriptPath);
-        if (lastUserMessage) {
-          const messageChanged = state.updateLastUserMessage(cwd, lastUserMessage);
-          if (messageChanged) updatedCount++;
-        }
-
-        const pendingQuestion = checkPendingAskUserQuestion(transcriptPath);
-        if (pendingQuestion) {
-          // Update the agent to blocked status, preserving what they were doing
-          state.onAgentBlocked(sessionId, cwd, projectName, pendingQuestion, activity || undefined);
-          updatedCount++;
-        } else {
-          // No pending question - check if we should unblock
-          // This handles the case where a question was answered but hooks didn't fire
-          const project = state.getProject(cwd);
-          if (project) {
-            const agents = project.agents as Map<string, { status: string }>;
-            const agent = agents.get(sessionId);
-            if (agent && agent.status === 'blocked') {
-              // Agent was blocked but no longer has a pending question - unblock them
-              state.onAgentUnblocked(sessionId, cwd, projectName);
+          // Register session if it doesn't exist yet
+          // This catches sessions that started after Argus or where hooks didn't fire
+          const existingProject = state.getProject(cwd);
+          if (!existingProject) {
+            const task = extractTaskFromTranscript(transcriptPath);
+            state.onSessionStart(sessionId, cwd, projectName, task ?? undefined);
+            updatedCount++;
+          } else {
+            // Check if this specific session is registered
+            const agents = existingProject.agents as Map<string, unknown>;
+            if (!agents.has(sessionId)) {
+              // New session in existing project - register it!
+              const task = extractTaskFromTranscript(transcriptPath);
+              state.onSessionStart(sessionId, cwd, projectName, task ?? undefined);
               updatedCount++;
+            } else {
+              // Try to extract and update task for sessions missing it
+              const task = extractTaskFromTranscript(transcriptPath);
+              if (task) {
+                state.updateSessionTask(sessionId, cwd, task);
+              }
             }
           }
+
+          // Extract current activity (what they're doing now)
+          const activityResult = extractCurrentActivity(transcriptPath);
+          if (activityResult) {
+            const activityChanged = state.updateCurrentActivity(
+              sessionId,
+              cwd,
+              activityResult.activity,
+              transcriptPath,
+              activityResult.lineNumber
+            );
+            if (activityChanged) updatedCount++;
+          }
+
+          // Extract last user message (per-project, not per-session)
+          const lastUserMessage = extractLastUserMessage(transcriptPath);
+          if (lastUserMessage) {
+            const messageChanged = state.updateLastUserMessage(cwd, lastUserMessage);
+            if (messageChanged) updatedCount++;
+          }
+
+          const pendingQuestion = checkPendingAskUserQuestion(transcriptPath);
+          if (pendingQuestion) {
+            // Update the agent to blocked status, preserving what they were doing
+            state.onAgentBlocked(sessionId, cwd, projectName, pendingQuestion, activityResult?.activity);
+            updatedCount++;
+          } else {
+            // No pending question - check if we should unblock
+            // This handles the case where a question was answered but hooks didn't fire
+            const project = state.getProject(cwd);
+            if (project) {
+              const agents = project.agents as Map<string, { status: string }>;
+              const agent = agents.get(sessionId);
+              if (agent && agent.status === 'blocked') {
+                // Agent was blocked but no longer has a pending question - unblock them
+                state.onAgentUnblocked(sessionId, cwd, projectName);
+                updatedCount++;
+              }
+            }
+          }
+        } catch (e) {
+          // Skip inaccessible files
         }
-      } catch (e) {
-        // Skip inaccessible files
       }
     }
   } catch (e) {
@@ -490,10 +526,10 @@ export function discoverExistingSessions(): number {
         continue;
       }
 
-      // Find the most recent transcript (if active)
-      const transcriptPath = findMostRecentTranscript(projectDir);
+      // MULTIPLE CONDUCTORS: Find ALL active transcripts in this project
+      const transcriptPaths = findActiveTranscripts(projectDir);
 
-      if (transcriptPath) {
+      for (const transcriptPath of transcriptPaths) {
         const info = parseTranscript(transcriptPath);
 
         if (info) {

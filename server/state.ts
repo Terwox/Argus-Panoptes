@@ -102,6 +102,11 @@ function updateProjectStatus(project: Project): void {
     // Check if agent is actively working or just stale
     const isStale = now - agent.lastActivityAt > IDLE_TIMEOUT;
 
+    // Transition working agents to idle if they've been inactive
+    if (agent.status === 'working' && isStale) {
+      agent.status = 'idle';
+    }
+
     if (agent.status === 'blocked') hasBlocked = true;
     // Only count as "working" if we've heard from them recently
     if (agent.status === 'working' && !isStale) hasWorking = true;
@@ -137,13 +142,9 @@ export function onSessionStart(
   const project = getOrCreateProject(projectPath, projectName);
   const agents = project.agents as Map<string, Agent>;
 
-  // IMPORTANT: Only ONE main agent per project at a time
-  // Remove ALL other main agents when a new session starts
-  for (const [id, agent] of agents) {
-    if (agent.type === 'main' && id !== sessionId) {
-      agents.delete(id);
-    }
-  }
+  // MULTIPLE CONDUCTORS SUPPORTED: Allow multiple main agents per project
+  // Each Claude Code session in the same directory gets its own conductor
+  // Stale sessions are cleaned up by cleanupStale() after IDLE_TIMEOUT
 
   // Create or update main agent
   const mainAgent: Agent = {
@@ -428,7 +429,9 @@ export function updateSessionTask(
 export function updateCurrentActivity(
   sessionId: string,
   projectPath: string,
-  activity: string
+  activity: string,
+  transcriptPath?: string,
+  transcriptLine?: number
 ): boolean {
   const project = getProject(projectPath);
   if (!project) return false;
@@ -438,6 +441,9 @@ export function updateCurrentActivity(
   if (agent && agent.status === 'working') {
     const changed = agent.currentActivity !== activity;
     agent.currentActivity = activity;
+    // Store transcript location for navigation
+    if (transcriptPath) agent.transcriptPath = transcriptPath;
+    if (transcriptLine) agent.transcriptLine = transcriptLine;
     // Only update lastActivityAt if activity actually changed
     // This allows idle detection to work for sessions that stopped working
     if (changed) {
@@ -554,11 +560,22 @@ export function cleanupStale(): void {
     }
 
     const agents = project.agents as Map<string, Agent>;
+    const idleThreshold = now - IDLE_TIMEOUT;
+
     for (const [agentId, agent] of agents) {
       // Clean up stale blocked main agents
       if (agent.type === 'main' &&
           agent.status === 'blocked' &&
           agent.lastActivityAt < blockedThreshold) {
+        agents.delete(agentId);
+        continue;
+      }
+
+      // Clean up stale idle main agents (supports multiple conductors cleanup)
+      // This handles sessions that closed without proper cleanup
+      if (agent.type === 'main' &&
+          agent.status === 'idle' &&
+          agent.lastActivityAt < idleThreshold) {
         agents.delete(agentId);
         continue;
       }

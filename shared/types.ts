@@ -34,7 +34,7 @@ export interface ArgusEvent {
 // ============================================
 
 export type ProjectStatus = 'idle' | 'working' | 'blocked';
-export type AgentStatus = 'working' | 'blocked' | 'complete';
+export type AgentStatus = 'idle' | 'working' | 'blocked' | 'complete';
 
 export interface SessionModes {
   ralph?: boolean;
@@ -58,6 +58,8 @@ export interface Agent {
   workingTime?: number; // ms spent working (for "tired" state)
   modes?: SessionModes; // active modes (ralph, ultrawork, planning)
   delegatingTo?: string; // Agent type being delegated to (for "Passing work to..." display)
+  transcriptPath?: string; // Path to transcript file for navigation
+  transcriptLine?: number; // Line number in transcript for current activity
 }
 
 export interface Project {

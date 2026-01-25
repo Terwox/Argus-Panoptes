@@ -21,6 +21,8 @@
   export let agents: Agent[];
   export let height: number = 280;
   export let fillHeight: boolean = false; // If true, fill parent container
+  export let projectPath: string = ''; // Project path for opening in VS Code
+  export let compact: boolean = false; // Compact mode: smaller bots, tighter layout
 
   // Track last animation used for no-repeat logic
   let lastConjureAnimation: ConjureAnimation | null = null;
@@ -37,14 +39,31 @@
     const botIndex = bots.findIndex(b => b.agent.id === botId);
     if (botIndex === -1) return;
 
+    const bot = bots[botIndex];
+
+    // ALWAYS trigger bobble animation
+    bot.bobble = true;
+    setTimeout(() => {
+      if (bots[botIndex]) {
+        bots[botIndex].bobble = false;
+        bots = bots;
+      }
+    }, 400); // Match bobble animation duration
+
+    // If blocked, open VS Code
+    if (bot.agent.status === 'blocked' && projectPath) {
+      const vscodeUri = `vscode://file/${projectPath}`;
+      window.open(vscodeUri, '_blank');
+    }
+
     // Don't react if already reacting
-    if (bots[botIndex].reaction) return;
+    if (bot.reaction) return;
 
     const reaction = getRandomReaction();
     const emoji = reaction === 'emoji' ? getRandomEmoji() : '';
 
-    bots[botIndex].reaction = reaction;
-    bots[botIndex].reactionEmoji = emoji;
+    bot.reaction = reaction;
+    bot.reactionEmoji = emoji;
     bots = bots; // Trigger reactivity
 
     // Clear reaction after animation completes
@@ -102,6 +121,7 @@
     isRelocating: boolean; // Currently pushing desk to new location
     relocateTargetX: number; // Target X when relocating
     relocateTargetY: number; // Target Y when relocating
+    bobble: boolean; // Bobble animation trigger
   }
 
   let bots: BotState[] = [];
@@ -117,17 +137,32 @@
   // Bot distance must be large enough that speech bubbles don't collide
   const MIN_BOT_DISTANCE = 90; // Reduced to allow closer spacing
 
-  // Conductor position computed from desk position (reactive)
-  $: conductorX = DESK_POSITIONS.conductor.xPct * containerWidth;
-  $: conductorY = DESK_POSITIONS.conductor.yPct * containerHeight;
-  // Exclusion zone around conductor - subagents shouldn't spawn too close
+  // Conductor positions computed from desk positions (reactive)
+  // Multiple conductors now supported - each has their own position
+  $: conductorX = DESK_POSITIONS.conductor_0.xPct * containerWidth;
+  $: conductorY = DESK_POSITIONS.conductor_0.yPct * containerHeight;
+  // Exclusion zone around ALL conductor positions - subagents shouldn't spawn too close
   const CONDUCTOR_EXCLUSION_DISTANCE = 100;
 
+  // MULTIPLE CONDUCTORS: Support multiple Claude Code sessions in same project
+  // Each conductor gets a staggered horizontal position
+  const CONDUCTOR_POSITIONS = [
+    { xPct: CONDUCTOR_POSITION.X_PCT, yPct: CONDUCTOR_POSITION.Y_PCT },         // First: 10%
+    { xPct: CONDUCTOR_POSITION.X_PCT + 0.18, yPct: CONDUCTOR_POSITION.Y_PCT },   // Second: 28%
+    { xPct: CONDUCTOR_POSITION.X_PCT + 0.36, yPct: CONDUCTOR_POSITION.Y_PCT },   // Third: 46%
+  ];
+  const MAX_CONDUCTORS = CONDUCTOR_POSITIONS.length;
+
+  // Track which conductor positions are taken (by sessionId)
+  let conductorAssignments: Map<string, number> = new Map(); // agentId -> conductor index
+
   // EXPERIMENT: Organic desk building - bots find open space and build desks there
-  // Only conductor has a fixed position; subagents find their own spot
+  // Conductors get fixed positions; subagents find their own spot
   const BASE_DESK_POSITIONS: Record<string, { xPct: number; yPct: number }> = {
-    // Conductor position from config (moved down to leave room for speech bubble above)
-    conductor: { xPct: CONDUCTOR_POSITION.X_PCT, yPct: CONDUCTOR_POSITION.Y_PCT },
+    // First conductor position from config
+    conductor_0: CONDUCTOR_POSITIONS[0],
+    conductor_1: CONDUCTOR_POSITIONS[1],
+    conductor_2: CONDUCTOR_POSITIONS[2],
   };
 
   // Dynamic desk positions - bots add their own desks when they spawn
@@ -139,7 +174,8 @@
     const maxXPct = 0.92;
     const minYPct = 0.05;
     const maxYPct = 0.75; // Use more vertical space
-    const minDistPct = 0.18; // Allow closer desk spacing
+    const minDistPct = 0.20; // Minimum distance between desks
+    const conductorExclusionPct = 0.20; // Exclusion zone around conductor positions
 
     // Try random positions, check for overlap
     for (let attempt = 0; attempt < 50; attempt++) {
@@ -147,11 +183,13 @@
       const yPct = minYPct + Math.random() * (maxYPct - minYPct);
 
       let hasOverlap = false;
-      for (const desk of Object.values(DESK_POSITIONS)) {
+      for (const [deskKey, desk] of Object.entries(DESK_POSITIONS)) {
         const dx = desk.xPct - xPct;
         const dy = desk.yPct - yPct;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < minDistPct) {
+        // Use larger exclusion distance for ALL conductor positions
+        const minDist = deskKey.startsWith('conductor_') ? conductorExclusionPct : minDistPct;
+        if (dist < minDist) {
           hasOverlap = true;
           break;
         }
@@ -162,15 +200,21 @@
       }
     }
 
-    // Fallback: grid position based on desk count
-    const deskCount = Object.keys(DESK_POSITIONS).length;
-    const col = (deskCount - 1) % 3;
-    const row = Math.floor((deskCount - 1) / 3);
+    // Fallback: grid position based on desk count (offset past conductor slots)
+    const subagentDeskCount = Object.keys(DESK_POSITIONS).filter(k => !k.startsWith('conductor_')).length;
+    const col = subagentDeskCount % 3;
+    const row = Math.floor(subagentDeskCount / 3);
     return {
-      xPct: Math.min(0.30 + col * 0.25, maxXPct),
+      xPct: Math.min(0.55 + col * 0.15, maxXPct), // Start further right to avoid conductor zone
       yPct: Math.min(0.15 + row * 0.25, maxYPct),
     };
   }
+
+  // Decision Mode: when any agent is blocked, enter focused mode
+  $: decisionMode = bots.some(b => b.agent.status === 'blocked');
+  $: blockedAgents = bots.filter(b => b.agent.status === 'blocked');
+  $: primaryBlockedAgent = blockedAgents[0];
+  $: blockedQueueCount = blockedAgents.length;
 
   // Dynamic bubble sizing based on bot count
   // Few bots = big bubbles (with wrapping), many bots = small marquee bubbles
@@ -183,6 +227,10 @@
   $: bubbleCharLimit = bubbleSize === 'xl' ? 300 : bubbleSize === 'lg' ? 180 : bubbleSize === 'md' ? 100 : 60;
   $: bubbleAllowWrap = bubbleSize === 'xl' || bubbleSize === 'lg'; // Bigger bubbles can wrap text
   $: marqueeThreshold = bubbleSize === 'xl' ? 80 : bubbleSize === 'lg' ? 55 : bubbleSize === 'md' ? 35 : 22;
+
+  // Decision mode expanded bubble settings
+  $: decisionBubbleWidth = Math.min(600, containerWidth - 60);
+  $: decisionBubbleHeight = 80; // Larger bubble for expanded text
 
   // Conjuration animation speed (lower = slower, 0.003 ≈ 5 seconds at 60fps)
   const CONJURE_SPEED = 0.003;
@@ -197,7 +245,16 @@
   $: botMinY = containerHeight * BOT_MIN_Y_PCT;
   $: botMaxY = containerHeight * BOT_MAX_Y_PCT;
 
+  // Multiple conductors now supported - get first for backward compatibility
   $: mainAgent = agents.find(a => a.type === 'main');
+  $: allMainAgents = agents.filter(a => a.type === 'main');
+
+  // DEBUG: Log conductor count (multiple is now expected for multi-terminal support)
+  $: {
+    if (allMainAgents.length > MAX_CONDUCTORS) {
+      console.log('[CuteWorld] Conductors exceeding visual slots:', allMainAgents.length, '/', MAX_CONDUCTORS);
+    }
+  }
 
   // Initialize/update bots when agents change
   $: {
@@ -207,15 +264,46 @@
     // Remove departed agents (with fade out)
     bots = bots.filter(b => newAgentIds.has(b.agent.id));
 
+    // Clean up conductor assignments for departed agents
+    for (const [agentId, _] of conductorAssignments) {
+      if (!newAgentIds.has(agentId)) {
+        conductorAssignments.delete(agentId);
+      }
+    }
+
+    // Count current conductors
+    const currentConductorCount = bots.filter(b => b.agent.type === 'main').length;
+
     // Add new agents with conjuring animation
     for (const agent of agents) {
       if (!existingIds.has(agent.id)) {
         const isMain = agent.type === 'main';
+
+        // MULTIPLE CONDUCTORS: Assign staggered positions instead of preventing duplicates
+        let conductorIndex = -1;
+        if (isMain) {
+          // Find next available conductor slot
+          const usedSlots = new Set(conductorAssignments.values());
+          for (let i = 0; i < MAX_CONDUCTORS; i++) {
+            if (!usedSlots.has(i)) {
+              conductorIndex = i;
+              conductorAssignments.set(agent.id, i);
+              break;
+            }
+          }
+          // If all slots taken, overflow to last position (will stack)
+          if (conductorIndex === -1) {
+            conductorIndex = MAX_CONDUCTORS - 1;
+            conductorAssignments.set(agent.id, conductorIndex);
+            console.log('[CuteWorld] Conductor overflow, stacking at position:', conductorIndex);
+          }
+        }
+
         const conjureAnim = getRandomConjureAnimation();
 
-        // Find desk position - ALL agents use desk positions (including conductor)
+        // Find desk position - conductors use staggered positions, others find space
         const spawnPos = isMain
-          ? getDeskPosition('conductor')
+          ? getDeskPosition(`conductor_${conductorIndex}`)
           : findNonOverlappingPosition(agent.name);
 
         bots = [...bots, {
@@ -243,6 +331,7 @@
           isRelocating: false,
           relocateTargetX: 0,
           relocateTargetY: 0,
+          bobble: false,
         }];
       } else {
         // Update existing bot's agent data and bubble text
@@ -262,6 +351,12 @@
           return b;
         });
       }
+    }
+
+    // DEBUG: Log conductor count (multiple is now expected for multi-terminal support)
+    const conductorBots = bots.filter(b => b.agent.type === 'main');
+    if (conductorBots.length > MAX_CONDUCTORS && frameCount % 100 === 0) {
+      console.log('[CuteWorld] Conductors exceeding max slots:', conductorBots.length, '/', MAX_CONDUCTORS);
     }
   }
 
@@ -287,18 +382,23 @@
   }
 
   // Get desk position - ORGANIC: bots find open space and build their desk there
-  // Conductor always gets 'conductor' desk (fixed position)
+  // Conductors get staggered positions (conductor_0, conductor_1, etc.)
   // Returns both position AND which desk was assigned (for responsive repositioning)
   function getDeskPosition(role: string): { x: number; y: number; deskKey: string } {
-    // Conductor always gets the conductor desk
-    if (role === 'conductor') {
-      const desk = DESK_POSITIONS.conductor;
-      return { x: desk.xPct * containerWidth, y: desk.yPct * containerHeight, deskKey: 'conductor' };
+    // Conductors get their assigned staggered position
+    if (role.startsWith('conductor_')) {
+      const desk = DESK_POSITIONS[role];
+      if (desk) {
+        return { x: desk.xPct * containerWidth, y: desk.yPct * containerHeight, deskKey: role };
+      }
+      // Fallback to first conductor position
+      const fallback = DESK_POSITIONS.conductor_0;
+      return { x: fallback.xPct * containerWidth, y: fallback.yPct * containerHeight, deskKey: 'conductor_0' };
     }
 
     // ORGANIC: Find open space and create a new desk there
     const deskCount = Object.keys(DESK_POSITIONS).length;
-    const deskKey = `desk${deskCount}`; // desk1, desk2, etc.
+    const deskKey = `desk${deskCount}`; // desk4, desk5, etc.
 
     // Find open space for the new desk
     const openSpace = findOpenSpaceForDesk();
@@ -478,10 +578,29 @@
       bot.homeX = deskPos.xPct * containerWidth;
       bot.homeY = deskPos.yPct * containerHeight;
 
-      // Conductor stays at podium
+      // Conductor positioning - MULTIPLE CONDUCTORS SUPPORTED
       if (isMain) {
-        bot.x = bot.homeX;
-        bot.y = bot.homeY;
+        // Get this conductor's assigned position
+        const conductorIdx = conductorAssignments.get(bot.agent.id) ?? 0;
+        const conductorPos = CONDUCTOR_POSITIONS[conductorIdx] ?? CONDUCTOR_POSITIONS[0];
+        bot.homeX = conductorPos.xPct * containerWidth;
+        bot.homeY = conductorPos.yPct * containerHeight;
+
+        // In decision mode when blocked, position conductor to align with bubble tail
+        // Only the PRIMARY blocked conductor gets repositioned
+        const isPrimaryBlocked = decisionMode && bot.agent.status === 'blocked' && bot === primaryBlockedAgent;
+        if (isPrimaryBlocked) {
+          // Position conductor centered horizontally and below the bubble
+          const decisionBubbleLeft = (containerWidth - decisionBubbleWidth) / 2;
+          const bubbleCenterX = decisionBubbleLeft + decisionBubbleWidth / 2;
+          bot.x = bubbleCenterX - BOT_SIZE / 2;
+          // Keep Y at normal podium position - bubble will be positioned above
+          bot.y = bot.homeY;
+        } else {
+          // Normal podium position (staggered for multiple conductors)
+          bot.x = bot.homeX;
+          bot.y = bot.homeY;
+        }
         continue;
       }
 
@@ -570,8 +689,10 @@
 
           // Separate overlapping bots (prevent sticking)
           const overlap = minDist - dist;
-          const separationX = nx * overlap * 0.5;
-          const separationY = ny * overlap * 0.5;
+          // Use stronger separation when near conductor (must push away harder)
+          const separationStrength = other.agent.type === 'main' ? 1.0 : 0.5;
+          const separationX = nx * overlap * separationStrength;
+          const separationY = ny * overlap * separationStrength;
           bot.x += separationX;
           bot.y += separationY;
           if (other.agent.type !== 'main') {
@@ -646,6 +767,23 @@
         bot.vy = -Math.abs(bot.vy) * BOUNCE;
       }
 
+      // HARD CONSTRAINT: Force ALL non-conductor bots away from conductor position
+      // This runs EVERY frame to ensure no overlap
+      for (const otherBot of bots) {
+        if (otherBot === bot) continue;
+        const dx = bot.x - otherBot.x;
+        const dy = bot.y - otherBot.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const minDist = otherBot.agent.type === 'main' ? CONDUCTOR_EXCLUSION_DISTANCE : MIN_BOT_DISTANCE;
+
+        if (dist < minDist && dist > 0) {
+          // Force this bot away
+          const angle = Math.atan2(dy, dx);
+          bot.x = otherBot.x + Math.cos(angle) * minDist;
+          bot.y = otherBot.y + Math.sin(angle) * minDist;
+        }
+      }
+
       // Update facing direction based on velocity (with hysteresis to reduce flipping)
       // Only flip direction if moving strongly the opposite way
       const flipThreshold = 0.6; // Higher threshold = less frequent direction changes
@@ -677,6 +815,296 @@
   onDestroy(() => {
     if (animationFrame) cancelAnimationFrame(animationFrame);
   });
+
+  // ============ BUBBLE COLLISION AVOIDANCE ============
+  // DESIGN PRINCIPLE: NOTHING SHOULD OVERLAP
+  // Pre-compute bubble positions to avoid bots, names, and other bubbles
+
+  interface BubbleRect {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    botId: string;
+    bubbleBelow: boolean;
+  }
+
+  function rectsOverlap(a: BubbleRect, b: { left: number; top: number; width: number; height: number }): boolean {
+    return !(a.left + a.width < b.left ||
+             b.left + b.width < a.left ||
+             a.top + a.height < b.top ||
+             b.top + b.height < a.top);
+  }
+
+  // Compute all bubble positions with collision avoidance
+  // DESIGN: NOTHING SHOULD OVERLAP - if we can't find room, don't show the bubble
+  $: computedBubbles = (() => {
+    const results: BubbleRect[] = [];
+    const NAME_TAG_HEIGHT = 24;
+    const NAME_TAG_WIDTH = 90;
+    const BUBBLE_MARGIN = 14; // Clear separation between elements
+    const TAIL_HEIGHT = 10;
+    const COLLISION_PADDING = 8; // Extra padding for collision detection
+
+    // MULTIPLE CONDUCTORS: Count how many conductors for zone allocation
+    const conductorCount = bots.filter(b => b.agent.type === 'main').length;
+    const hasMultipleConductors = conductorCount > 1;
+
+    // DECISION MODE: Only show bubbles for blocked agents
+    const visibleBots = decisionMode
+      ? bots.filter(b => b.agent.status === 'blocked')
+      : bots;
+
+    // Build list of obstacles: all bots, their name tags, and desks
+    const obstacles: { left: number; top: number; width: number; height: number }[] = [];
+    const DESK_WIDTH = 50;
+    const DESK_HEIGHT = 30;
+
+    for (const bot of bots) {
+      if (bot.scale < 0.5) continue;
+      // Bot body (with padding)
+      obstacles.push({
+        left: bot.x - COLLISION_PADDING,
+        top: bot.y - COLLISION_PADDING,
+        width: BOT_SIZE + COLLISION_PADDING * 2,
+        height: BOT_SIZE + COLLISION_PADDING * 2,
+      });
+      // Bot name tag (below bot, centered, with padding)
+      obstacles.push({
+        left: bot.x + BOT_SIZE / 2 - NAME_TAG_WIDTH / 2 - COLLISION_PADDING,
+        top: bot.y + BOT_SIZE + 2,
+        width: NAME_TAG_WIDTH + COLLISION_PADDING * 2,
+        height: NAME_TAG_HEIGHT + COLLISION_PADDING,
+      });
+      // Desk below bot (if not conductor - conductor has podium)
+      if (bot.agent.type !== 'main') {
+        obstacles.push({
+          left: bot.x - 8 - COLLISION_PADDING,
+          top: bot.y + BOT_SIZE + NAME_TAG_HEIGHT + 4,
+          width: DESK_WIDTH + COLLISION_PADDING * 2,
+          height: DESK_HEIGHT + COLLISION_PADDING,
+        });
+      }
+    }
+
+    // Process conductor FIRST (always gets a bubble), then other bots by Y position (top to bottom)
+    const sortedBots = [...visibleBots].sort((a, b) => {
+      if (a.agent.type === 'main') return -1;
+      if (b.agent.type === 'main') return 1;
+      return a.y - b.y; // Top bots get priority
+    });
+
+    // Limit how many subagent bubbles we show to prevent crowding (unless in decision mode)
+    const MAX_SUBAGENT_BUBBLES = decisionMode ? 10 : 3;
+    let subagentBubblesShown = 0;
+
+    for (const bot of sortedBots) {
+      if (!bot.showBubble || !bot.bubbleText || bot.scale < 0.5) continue;
+
+      const isConductor = bot.agent.type === 'main';
+      const isBlocked = bot.agent.status === 'blocked';
+      const isPrimaryBlocked = decisionMode && isBlocked && bot === primaryBlockedAgent;
+
+      // Skip subagent bubbles if we've shown enough
+      if (!isConductor && !isPrimaryBlocked && subagentBubblesShown >= MAX_SUBAGENT_BUBBLES) continue;
+
+      const botCenterX = bot.x + BOT_SIZE / 2;
+      const botCenterY = bot.y + BOT_SIZE / 2;
+
+      // MULTIPLE CONDUCTORS: Get this conductor's index for zone allocation
+      const thisConductorIndex = isConductor ? (conductorAssignments.get(bot.agent.id) ?? 0) : 0;
+
+      // SOLO CONDUCTOR: When there's only one conductor, give them a much larger bubble
+      // since there's plenty of room in the card for it
+      const isSoloConductor = isConductor && conductorCount === 1 && !isPrimaryBlocked;
+
+      // Calculate bubble dimensions - expanded for primary blocked agent OR solo conductor
+      // MULTIPLE CONDUCTORS: Reduce width when there are multiple conductors
+      const singleConductorBubbleWidth = Math.min(400, containerWidth - 40);
+      const multiConductorBubbleWidth = Math.min(280, (containerWidth / conductorCount) - 30);
+      // Solo conductor gets 75% of container width (generous space for text)
+      const soloConductorBubbleWidth = Math.min(600, Math.floor(containerWidth * 0.75));
+      const conductorBubbleWidth = isSoloConductor
+        ? soloConductorBubbleWidth
+        : (hasMultipleConductors ? multiConductorBubbleWidth : singleConductorBubbleWidth);
+      // Solo conductor gets taller bubble for text wrapping (80px vs 48px)
+      let bubbleBodyHeight = isSoloConductor ? 80 : (isConductor ? 48 : 28);
+      let width = isConductor ? conductorBubbleWidth : Math.min(bubbleMaxWidth, containerWidth - 20);
+
+      // DECISION MODE: Expand bubble for primary blocked agent
+      if (isPrimaryBlocked) {
+        width = decisionBubbleWidth;
+        bubbleBodyHeight = decisionBubbleHeight;
+      }
+
+      const height = bubbleBodyHeight + TAIL_HEIGHT;
+
+      // Calculate horizontal position - center bubble on bot
+      // MULTIPLE CONDUCTORS: Each conductor's bubble stays above/near their position
+      // Don't center - position relative to the bot's actual location
+      // In decision mode with expanded bubble, center horizontally in container
+      // Otherwise, position bubble centered on the bot (with edge clamping)
+      let idealLeft: number;
+      if (isPrimaryBlocked) {
+        idealLeft = (containerWidth - width) / 2;
+      } else if (isConductor && hasMultipleConductors) {
+        // MULTIPLE CONDUCTORS: Position bubble centered on this conductor's position
+        // with zone boundaries to prevent overlap
+        const zoneWidth = containerWidth / conductorCount;
+        const zoneStart = thisConductorIndex * zoneWidth;
+        const zoneEnd = (thisConductorIndex + 1) * zoneWidth;
+        const centerOnBot = botCenterX - width / 2;
+        // Clamp to stay within this conductor's zone
+        idealLeft = Math.max(zoneStart + 5, Math.min(zoneEnd - width - 5, centerOnBot));
+      } else {
+        idealLeft = Math.max(10, Math.min(containerWidth - width - 10, botCenterX - width / 2));
+      }
+
+      // Determine vertical positions
+      const isTopHalf = botCenterY < containerHeight * 0.4;
+      const aboveY = bot.y - height - BUBBLE_MARGIN;
+      const belowY = bot.y + BOT_SIZE + NAME_TAG_HEIGHT + BUBBLE_MARGIN + 4;
+
+      // Decision mode: position bubble above bot so tail points at bot
+      // Conductor: prefer above, but go below if not enough room above
+      // Others: prefer below if in top half of container
+      const preferBelow = isPrimaryBlocked ? false : isConductor ? (aboveY < 10) : (isTopHalf || aboveY < 10);
+
+      // Check for collisions
+      const hasCollision = (rect: { left: number; top: number; width: number; height: number }) => {
+        // Check against static obstacles (bots + name tags)
+        for (const obs of obstacles) {
+          if (rectsOverlap(rect as BubbleRect, obs)) return true;
+        }
+        // Check against already-placed bubbles
+        for (const placed of results) {
+          if (rectsOverlap(rect as BubbleRect, placed)) return true;
+        }
+        // Check container bounds
+        if (rect.top < 5 || rect.top + rect.height > containerHeight - 5) return true;
+        if (rect.left < 5 || rect.left + rect.width > containerWidth - 5) return true;
+        return false;
+      };
+
+      // Try positions in order of preference
+      const positions: Array<{ left: number; top: number; bubbleBelow: boolean }> = [];
+
+      // Primary position
+      positions.push({
+        left: idealLeft,
+        top: preferBelow ? belowY : aboveY,
+        bubbleBelow: preferBelow
+      });
+
+      // Opposite vertical
+      positions.push({
+        left: idealLeft,
+        top: preferBelow ? aboveY : belowY,
+        bubbleBelow: !preferBelow
+      });
+
+      // Horizontal shifts with both vertical positions
+      const hShifts = [-50, 50, -100, 100, -150, 150];
+      for (const hShift of hShifts) {
+        const shiftedLeft = Math.max(10, Math.min(containerWidth - width - 10, idealLeft + hShift));
+        positions.push({ left: shiftedLeft, top: preferBelow ? belowY : aboveY, bubbleBelow: preferBelow });
+        positions.push({ left: shiftedLeft, top: preferBelow ? aboveY : belowY, bubbleBelow: !preferBelow });
+      }
+
+      // Vertical shifts
+      const vShifts = [-25, 25, -50, 50, -75, 75];
+      for (const vShift of vShifts) {
+        const baseTop = preferBelow ? belowY : aboveY;
+        const shiftedTop = Math.max(10, Math.min(containerHeight - height - 10, baseTop + vShift));
+        positions.push({ left: idealLeft, top: shiftedTop, bubbleBelow: preferBelow });
+      }
+
+      // Find first non-colliding position
+      let foundPosition: { left: number; top: number; bubbleBelow: boolean } | null = null;
+      for (const pos of positions) {
+        const testRect = {
+          left: pos.left - COLLISION_PADDING,
+          top: pos.top - COLLISION_PADDING,
+          width: width + COLLISION_PADDING * 2,
+          height: height + COLLISION_PADDING * 2,
+        };
+        if (!hasCollision(testRect)) {
+          foundPosition = pos;
+          break;
+        }
+      }
+
+      // DESIGN PRINCIPLE: NOTHING SHOULD OVERLAP
+      // If no non-colliding position found:
+      // - Conductor/primary blocked: show anyway (user needs to see these)
+      // - Subagents: skip the bubble to avoid overlap
+      if (!foundPosition) {
+        if (isConductor || isPrimaryBlocked) {
+          // Must show conductor/blocked bubbles - use ideal position
+          foundPosition = { left: idealLeft, top: preferBelow ? belowY : aboveY, bubbleBelow: preferBelow };
+        } else {
+          // Skip subagent bubble to avoid overlap
+          continue;
+        }
+      }
+
+      // Add to results
+      results.push({
+        left: foundPosition.left,
+        top: foundPosition.top,
+        width: width,
+        height: height,
+        botId: bot.agent.id,
+        bubbleBelow: foundPosition.bubbleBelow,
+      });
+
+      if (!isConductor) subagentBubblesShown++;
+    }
+
+    return results;
+  })();
+
+  // Helper to get computed bubble position for a bot
+  function getBubblePosition(botId: string): BubbleRect | undefined {
+    return computedBubbles.find(b => b.botId === botId);
+  }
+
+  // Expose state for visual testing (used by scripts/visual-test.mjs)
+  // This allows Puppeteer to extract bot positions, velocities, and bubble data
+  // Using a getter function to capture current state on access
+  onMount(() => {
+    if (typeof window !== 'undefined') {
+      Object.defineProperty(window, '__argusTestState', {
+        get() {
+          return {
+            bots: bots.map(b => ({
+              id: b.agent.id,
+              type: b.agent.type,
+              name: b.agent.name,
+              x: b.x,
+              y: b.y,
+              vx: b.vx,
+              vy: b.vy,
+              homeX: b.homeX,
+              homeY: b.homeY,
+              direction: b.direction,
+              scale: b.scale,
+              spawning: b.spawning,
+              isRelocating: b.isRelocating,
+            })),
+            bubbles: computedBubbles,
+            bounds: {
+              width: containerWidth,
+              height: containerHeight,
+              botMinY,
+              botMaxY,
+            },
+          };
+        },
+        configurable: true,
+      });
+    }
+  });
 </script>
 
 <!-- DESIGN PRINCIPLE: NOTHING SHOULD OVERLAP -->
@@ -699,8 +1127,8 @@
     {@const isOccupied = !!occupyingBot}
     {@const isSpawning = occupyingBot?.spawning}
     {@const botRole = occupyingBot ? getRoleCategory(occupyingBot.agent.name) : null}
-    {#if deskKey !== 'conductor'}
-      <!-- Desk surface -->
+    {#if !deskKey.startsWith('conductor_')}
+      <!-- Desk surface (for non-conductor bots) -->
       <div
         class="absolute pointer-events-none transition-all duration-300"
         style="
@@ -786,23 +1214,26 @@
         </div>
       {/if}
     {:else}
-      <!-- Conductor gets a podium instead of a desk -->
-      <div
-        class="absolute pointer-events-none"
-        style="
-          left: {deskX - 5}px;
-          top: {deskY + BOT_SIZE}px;
-          z-index: 2;
-        "
-      >
-        <svg width="66" height="24" viewBox="0 0 66 24">
-          <!-- Podium -->
-          <path d="M 8 2 L 58 2 L 54 22 L 12 22 Z" fill="#1e1b4b" />
-          <path d="M 10 4 L 56 4 L 54 8 L 12 8 Z" fill="#312e81" />
-          <!-- Baton holder -->
-          <circle cx="33" cy="6" r="3" fill="#4338ca" />
-        </svg>
-      </div>
+      <!-- Conductor gets a podium instead of a desk (all conductor positions) -->
+      {@const hasConductorHere = bots.some(b => b.assignedDesk === deskKey)}
+      {#if hasConductorHere}
+        <div
+          class="absolute pointer-events-none"
+          style="
+            left: {deskX - 5}px;
+            top: {deskY + BOT_SIZE}px;
+            z-index: 2;
+          "
+        >
+          <svg width="66" height="24" viewBox="0 0 66 24">
+            <!-- Podium -->
+            <path d="M 8 2 L 58 2 L 54 22 L 12 22 Z" fill="#1e1b4b" />
+            <path d="M 10 4 L 56 4 L 54 8 L 12 8 Z" fill="#312e81" />
+            <!-- Baton holder -->
+            <circle cx="33" cy="6" r="3" fill="#4338ca" />
+          </svg>
+        </div>
+      {/if}
     {/if}
   {/each}
 
@@ -919,86 +1350,166 @@
   {/if}
 
   <!-- Speech bubbles layer (rendered separately to avoid transform issues) -->
-  <!-- DESIGN: NOTHING SHOULD OVERLAP - bubbles positioned to avoid each other -->
-  <!-- DESIGN: Top-row bots get bubbles below, bottom-row bots get bubbles above -->
-  <!-- DESIGN: Bubbles must stay inside container boundaries -->
-  {#each bots as bot, botIndex (bot.agent.id + '-bubble')}
+  <!-- DESIGN: NOTHING SHOULD OVERLAP - bubbles positioned via collision avoidance -->
+  <!-- DESIGN: Pre-computed positions avoid bots, names, and other bubbles -->
+  {#each bots as bot (bot.agent.id + '-bubble')}<!-- eslint-disable-line -->
     {#if bot.showBubble && bot.bubbleText && bot.scale > 0.5}
-      {@const isConductor = bot.agent.type === 'main'}
-      {@const displayText = truncateForDisplay(bot.bubbleText, isConductor ? bubbleCharLimit + 100 : bubbleCharLimit)}
-      {@const needsMarquee = !bubbleAllowWrap && !isConductor && displayText.length > marqueeThreshold}
-      {@const botCenterX = bot.x + BOT_SIZE / 2}
-      {@const botCenterY = bot.y + BOT_SIZE / 2}
-      {@const conductorBubbleWidth = Math.min(400, containerWidth - 40)}
-      {@const bubbleWidth = isConductor ? conductorBubbleWidth : Math.min(bubbleMaxWidth, containerWidth - 20)}
-      {@const bubbleLeft = Math.max(10, Math.min(containerWidth - bubbleWidth - 10, botCenterX - bubbleWidth / 2))}
-      {@const tailOffset = botCenterX - bubbleLeft - bubbleWidth / 2}
-      {@const estimatedBubbleHeight = isConductor ? 60 : 32}
-      <!-- Position bubble ABOVE bot by default; only below if it would clip top edge -->
-      {@const abovePosition = bot.y - estimatedBubbleHeight - 16}
-      {@const belowPosition = bot.y + BOT_SIZE + 16}
-      {@const wouldClipTop = abovePosition < 5}
-      {@const bubbleBelow = wouldClipTop}
-      {@const rawBubbleTop = bubbleBelow ? belowPosition : abovePosition}
-      {@const clampedBubbleTop = Math.max(5, Math.min(containerHeight - estimatedBubbleHeight - 5, rawBubbleTop))}
-      <div
-        class="absolute px-3 py-1.5 rounded-lg {isConductor ? 'text-sm' : bubbleTextClass}
-               {isConductor ? 'backdrop-blur-xl' : 'backdrop-blur'} shadow-lg overflow-hidden pointer-events-none
-               {bot.agent.status === 'blocked'
-                 ? 'bg-amber-500/30 text-amber-200 border border-amber-500/40'
-                 : bot.agent.status === 'complete'
-                   ? 'bg-green-500/30 text-green-200 border border-green-500/40'
-                   : 'bg-white/10 text-white/90 border border-white/20'}"
-        style="
-          left: {bubbleLeft}px;
-          top: {clampedBubbleTop}px;
-          width: {bubbleWidth}px;
-          max-height: {containerHeight - clampedBubbleTop - 10}px;
-          z-index: {1000 + (bubbleBelow ? Math.floor(bot.y) + 100 : Math.floor(containerHeight - bot.y))};
-        "
-      >
+      {@const computed = getBubblePosition(bot.agent.id)}
+      {#if computed}
+        {@const isConductor = bot.agent.type === 'main'}
+        {@const isBlocked = bot.agent.status === 'blocked'}
+        {@const isPrimaryBlocked = decisionMode && isBlocked && bot === primaryBlockedAgent}
+        {@const conductorCount = bots.filter(b => b.agent.type === 'main').length}
+        {@const isSoloConductor = isConductor && conductorCount === 1}
+        <!-- SINGLE CONDUCTOR: When there's only one conductor, show full text (plenty of room) -->
+        {@const displayText = isPrimaryBlocked || isSoloConductor
+          ? bot.bubbleText
+          : truncateForDisplay(bot.bubbleText, isConductor ? bubbleCharLimit + 100 : bubbleCharLimit)}
+        {@const needsMarquee = !isPrimaryBlocked && !bubbleAllowWrap && !isConductor && displayText.length > marqueeThreshold}
+        <!-- When conductor is blocked in decision mode, use the repositioned center -->
+        {@const actualBotCenterX = isPrimaryBlocked
+          ? (containerWidth - decisionBubbleWidth) / 2 + decisionBubbleWidth / 2
+          : bot.x + BOT_SIZE / 2}
+        <!-- Use pre-computed collision-free positions -->
+        {@const bubbleWidth = computed.width}
+        {@const bubbleLeft = computed.left}
+        {@const bubbleBelow = computed.bubbleBelow}
+        {@const clampedBubbleTop = computed.top}
+        {@const tailOffset = actualBotCenterX - bubbleLeft - bubbleWidth / 2}
+        {@const tailX = Math.max(-bubbleWidth/2 + 20, Math.min(bubbleWidth/2 - 20, tailOffset))}
+        {@const bubbleFill = bot.agent.status === 'blocked'
+          ? 'rgba(245, 158, 11, 0.3)'
+          : bot.agent.status === 'complete'
+            ? 'rgba(34, 197, 94, 0.3)'
+            : 'rgba(255, 255, 255, 0.1)'}
+        {@const bubbleStroke = bot.agent.status === 'blocked'
+          ? 'rgba(245, 158, 11, 0.4)'
+          : bot.agent.status === 'complete'
+            ? 'rgba(34, 197, 94, 0.4)'
+            : 'rgba(255, 255, 255, 0.2)'}
+        <!-- SVG Speech Bubble - single path for seamless border around bubble+tail -->
+        <!-- Solo conductor gets taller bubble (80px) for text wrapping -->
+        {@const bubbleHeight = isPrimaryBlocked ? decisionBubbleHeight : isSoloConductor ? 80 : (isConductor ? 48 : 28)}
+        {@const tailHeight = 10}
+        {@const tailWidth = 16}
+        {@const radius = 8}
+        {@const svgWidth = bubbleWidth}
+        {@const svgHeight = bubbleHeight + tailHeight}
+        {@const tailCenterX = bubbleWidth / 2 + tailX}
+        <!-- Clamp tail position to stay within bubble bounds -->
+        {@const clampedTailX = Math.max(radius + tailWidth/2 + 2, Math.min(bubbleWidth - radius - tailWidth/2 - 2, tailCenterX))}
+        <!-- SVG path for rounded rect with tail - all one continuous shape -->
+        {@const pathDown = `
+          M ${radius} 0
+          L ${svgWidth - radius} 0
+          Q ${svgWidth} 0 ${svgWidth} ${radius}
+          L ${svgWidth} ${bubbleHeight - radius}
+          Q ${svgWidth} ${bubbleHeight} ${svgWidth - radius} ${bubbleHeight}
+          L ${clampedTailX + tailWidth/2} ${bubbleHeight}
+          L ${clampedTailX} ${bubbleHeight + tailHeight}
+          L ${clampedTailX - tailWidth/2} ${bubbleHeight}
+          L ${radius} ${bubbleHeight}
+          Q 0 ${bubbleHeight} 0 ${bubbleHeight - radius}
+          L 0 ${radius}
+          Q 0 0 ${radius} 0
+          Z
+        `}
+        {@const pathUp = `
+          M ${radius} ${tailHeight}
+          L ${clampedTailX - tailWidth/2} ${tailHeight}
+          L ${clampedTailX} 0
+          L ${clampedTailX + tailWidth/2} ${tailHeight}
+          L ${svgWidth - radius} ${tailHeight}
+          Q ${svgWidth} ${tailHeight} ${svgWidth} ${tailHeight + radius}
+          L ${svgWidth} ${svgHeight - radius}
+          Q ${svgWidth} ${svgHeight} ${svgWidth - radius} ${svgHeight}
+          L ${radius} ${svgHeight}
+          Q 0 ${svgHeight} 0 ${svgHeight - radius}
+          L 0 ${tailHeight + radius}
+          Q 0 ${tailHeight} ${radius} ${tailHeight}
+          Z
+        `}
+        <!-- FUTURE: Bubble click → transcript navigation (not yet working, needs VS Code terminal scrollback API) -->
         <div
-          class="{isConductor || bubbleAllowWrap ? 'whitespace-normal' : 'whitespace-nowrap'} {needsMarquee ? 'animate-marquee' : ''}"
-          style={needsMarquee ? `--marquee-offset: ${bubbleWidth - 40}px` : ''}
+          class="absolute pointer-events-none"
+          style="
+            left: {bubbleLeft}px;
+            top: {clampedBubbleTop}px;
+            z-index: {1000 + (bubbleBelow ? Math.floor(bot.y) + 100 : Math.floor(containerHeight - bot.y))};
+          "
         >
-          {displayText}
+          <!-- SVG background shape with seamless border -->
+          <svg
+            width="{svgWidth}"
+            height="{svgHeight}"
+            class="{isConductor ? 'backdrop-blur-xl' : 'backdrop-blur'}"
+            style="filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));"
+          >
+            <path
+              d="{bubbleBelow ? pathUp : pathDown}"
+              fill="{bubbleFill}"
+              stroke="{bubbleStroke}"
+              stroke-width="1"
+            />
+          </svg>
+          <!-- Text content positioned over the SVG -->
+          <div
+            class="absolute {isConductor ? 'text-base' : isPrimaryBlocked ? 'text-sm' : bubbleTextClass} overflow-hidden
+                   {bot.agent.status === 'blocked'
+                     ? 'text-amber-200'
+                     : bot.agent.status === 'complete'
+                       ? 'text-green-200'
+                       : 'text-white/90'}"
+            style="
+              left: 12px;
+              top: {bubbleBelow ? tailHeight + 6 : 6}px;
+              width: {bubbleWidth - 24}px;
+              max-height: {bubbleHeight - 12}px;
+            "
+          >
+            <div
+              class="{isPrimaryBlocked || isConductor || bubbleAllowWrap ? 'whitespace-normal' : 'whitespace-nowrap'} {needsMarquee ? 'animate-marquee' : ''}"
+              style={needsMarquee ? `--marquee-offset: ${bubbleWidth - 40}px` : ''}
+            >
+              {displayText}
+            </div>
+          </div>
         </div>
-        <!-- Bubble tail - cute pointer toward bot -->
-        {#if bubbleBelow}
-          {@const tailX = Math.max(-bubbleWidth/2 + 20, Math.min(bubbleWidth/2 - 20, tailOffset))}
-          <!-- Tail points UP (bubble is below bot) -->
-          <div
-            class="absolute bottom-full w-0 h-0
-                   border-l-[10px] border-r-[10px] border-b-[12px] border-transparent
-                   {bot.agent.status === 'blocked'
-                     ? 'border-b-amber-500/50'
-                     : bot.agent.status === 'complete'
-                       ? 'border-b-green-500/50'
-                       : 'border-b-white/30'}"
-            style="left: calc(50% + {tailX}px); transform: translateX(-50%);"
-          />
-        {:else}
-          {@const tailX = Math.max(-bubbleWidth/2 + 20, Math.min(bubbleWidth/2 - 20, tailOffset))}
-          <!-- Tail points DOWN (bubble is above bot) - the ^ shape -->
-          <div
-            class="absolute top-full w-0 h-0
-                   border-l-[10px] border-r-[10px] border-t-[12px] border-transparent
-                   {bot.agent.status === 'blocked'
-                     ? 'border-t-amber-500/50'
-                     : bot.agent.status === 'complete'
-                       ? 'border-t-green-500/50'
-                       : 'border-t-white/30'}"
-            style="left: calc(50% + {tailX}px); transform: translateX(-50%);"
-          />
-        {/if}
-      </div>
+      {/if}
     {/if}
   {/each}
 
+  <!-- Queue indicator when multiple agents are blocked -->
+  {#if decisionMode && blockedQueueCount > 1}
+    {@const queueText = `+${blockedQueueCount - 1} more waiting`}
+    {@const queueLeft = (containerWidth - 180) / 2}
+    {@const queueTop = containerHeight - 40}
+    <div
+      class="absolute pointer-events-none"
+      style="
+        left: {queueLeft}px;
+        top: {queueTop}px;
+        z-index: 2000;
+      "
+    >
+      <div class="px-4 py-2 bg-amber-500/20 backdrop-blur-sm border border-amber-400/40 rounded-full">
+        <div class="text-xs text-amber-200 font-medium whitespace-nowrap">
+          {queueText}
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <!-- Bots -->
   {#each bots as bot (bot.agent.id)}
+    <!-- MULTIPLE CONDUCTORS: If only one conductor remains, use index 0 (primary blue) -->
+    {@const currentConductorCount = bots.filter(b => b.agent.type === 'main').length}
+    {@const effectiveConductorIndex = bot.agent.type === 'main' && currentConductorCount > 1
+      ? (conductorAssignments.get(bot.agent.id) ?? 0)
+      : 0}
     <div
       class="absolute transition-transform duration-100
+             {bot.agent.status === 'blocked' ? 'cursor-pointer hover:scale-110' : 'cursor-pointer'}
              {bot.reaction === 'wave' ? 'animate-bot-wave' : ''}
              {bot.reaction === 'bounce' ? 'animate-bot-bounce' : ''}
              {bot.reaction === 'spin' ? 'animate-bot-spin' : ''}
@@ -1011,17 +1522,22 @@
         transform: scaleX({bot.direction === 'left' ? -1 : 1}) scale({bot.scale});
         z-index: {Math.floor(bot.y)};
       "
+      role="button"
+      tabindex="0"
       on:click|stopPropagation={() => handleBotClick(bot.agent.id)}
+      on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') handleBotClick(bot.agent.id); }}
     >
       <!-- Bot using CuteBot component -->
       <div style="width: {BOT_SIZE}px; height: {BOT_SIZE}px;">
         <CuteBot
           status={bot.agent.status}
           role={getRole(bot.agent)}
-          size="lg"
+          conductorIndex={effectiveConductorIndex}
+          size={compact ? 'md' : 'lg'}
           conjuring={bot.spawning}
           conjureAnimation={bot.conjureAnimation}
           conjureProgress={bot.conjureProgress}
+          bobble={bot.bobble}
         />
       </div>
 
