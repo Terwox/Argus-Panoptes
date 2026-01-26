@@ -31,6 +31,7 @@
     | 'encouraging';
 
   let idleAnimation: IdleAnimation | null = null;
+  let sleepingUseEmoji: boolean = false; // Random choice between Z's and 💤
 
   // Select random idle animation when entering idle state
   function selectRandomIdleAnimation(): IdleAnimation {
@@ -47,6 +48,7 @@
     if (status === 'idle' && roleCategory === 'conductor' && !conjuring) {
       if (idleAnimation === null) {
         idleAnimation = selectRandomIdleAnimation();
+        sleepingUseEmoji = Math.random() > 0.5; // 50/50 chance for Z's vs 💤
       }
     } else if (status !== 'idle') {
       idleAnimation = null;
@@ -258,6 +260,9 @@
       {:else if status === 'complete'}
         <!-- Big smile -->
         <path d="M 35 65 Q 50 78 65 65" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" />
+      {:else if isSleeping}
+        <!-- Peaceful sleeping smile - content and dreaming -->
+        <path d="M 42 65 Q 50 70 58 65" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" />
       {:else if isTired || isIdle}
         <!-- Small neutral/content mouth -->
         <line x1="42" y1="68" x2="58" y2="68" stroke="#333" stroke-width="3" stroke-linecap="round" />
@@ -390,10 +395,16 @@
   {#if idleAnimation && roleCategory === 'conductor'}
     <div class="absolute inset-0 pointer-events-none">
       {#if idleAnimation === 'sleeping'}
-        <!-- Floating Z's -->
-        <div class="idle-z idle-z1">Z</div>
-        <div class="idle-z idle-z2">Z</div>
-        <div class="idle-z idle-z3">Z</div>
+        <!-- Floating sleep indicators - randomly Z's or 💤 emoji -->
+        {#if sleepingUseEmoji}
+          <div class="idle-zzz idle-zzz1">💤</div>
+          <div class="idle-zzz idle-zzz2">💤</div>
+          <div class="idle-zzz idle-zzz3">💤</div>
+        {:else}
+          <div class="idle-z idle-z1">Z</div>
+          <div class="idle-z idle-z2">z</div>
+          <div class="idle-z idle-z3">Z</div>
+        {/if}
       {:else if idleAnimation === 'reading'}
         <!-- Book held in hands -->
         <svg viewBox="0 0 100 100" class="w-full h-full">
@@ -841,32 +852,68 @@
   @keyframes float-z {
     0% {
       opacity: 0;
-      transform: translate(-50%, 0);
+      transform: translate(-50%, 0) scale(0.8);
     }
     20% {
       opacity: 1;
+      transform: translate(-50%, -8px) scale(1);
     }
     80% {
-      opacity: 1;
+      opacity: 0.8;
+      transform: translate(-60%, -32px) scale(1.1);
     }
     100% {
       opacity: 0;
-      transform: translate(-50%, -40px);
+      transform: translate(-70%, -45px) scale(0.7);
     }
   }
 
   .idle-z {
     position: absolute;
     left: 70%;
-    top: 30%;
-    font-size: 16px;
-    color: rgba(255, 255, 255, 0.6);
-    animation: float-z 3s ease-in-out infinite;
+    top: 25%;
+    font-size: 18px;
+    font-weight: bold;
+    color: rgba(255, 255, 255, 0.7);
+    text-shadow: 0 0 4px rgba(100, 149, 237, 0.5);
+    animation: float-z 3.5s ease-in-out infinite;
   }
 
   .idle-z1 { animation-delay: 0s; }
-  .idle-z2 { animation-delay: 1s; font-size: 14px; left: 75%; }
-  .idle-z3 { animation-delay: 2s; font-size: 12px; left: 73%; }
+  .idle-z2 { animation-delay: 1.2s; font-size: 14px; left: 78%; top: 22%; }
+  .idle-z3 { animation-delay: 2.4s; font-size: 16px; left: 74%; top: 28%; }
+
+  /* Sleeping 💤 emojis floating up peacefully */
+  @keyframes float-zzz {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, 0) scale(0.5);
+    }
+    15% {
+      opacity: 1;
+      transform: translate(-50%, -5px) scale(1);
+    }
+    85% {
+      opacity: 0.8;
+      transform: translate(-60%, -35px) scale(1.1);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-70%, -50px) scale(0.8);
+    }
+  }
+
+  .idle-zzz {
+    position: absolute;
+    left: 70%;
+    top: 25%;
+    font-size: 18px;
+    animation: float-zzz 4s ease-in-out infinite;
+  }
+
+  .idle-zzz1 { animation-delay: 0s; }
+  .idle-zzz2 { animation-delay: 1.3s; font-size: 14px; left: 80%; top: 20%; }
+  .idle-zzz3 { animation-delay: 2.6s; font-size: 16px; left: 75%; top: 28%; }
 
   /* Stretching animation */
   @keyframes stretch {
