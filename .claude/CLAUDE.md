@@ -12,9 +12,11 @@ A **calm, ambient dashboard** for monitoring Claude Code sessions across multipl
 
 1. **NOTHING SHOULD OVERLAP** - Bots, speech bubbles, name tags, desks must never overlap. Use collision detection, staggering, and smart positioning. Bubbles can overlap bots if necessary to avoid overlapping other bubbles.
 
-2. **BOUNDARY CONTAINMENT** - Everything stays inside container boundaries. Bubbles clamp to edges.
+2. **BOUNDARY CONTAINMENT** - Everything stays inside container boundaries. Bubbles clamp to edges. This includes conductor bubbles - they must NEVER extend past the card edges, even if it means truncating text or shrinking the bubble.
 
-3. **NO SCROLLING (unless necessary)** - The dashboard should fit in viewport without scrolling when ≤4 projects. Only allow scrolling when >4 projects or at very small resolutions. Cards should shrink to fit, not overflow.
+3. **BUBBLE-TO-BOT ASSOCIATION** - Speech bubble tails must ALWAYS point at their corresponding bots. Bubbles should travel WITH their bots during movement. Collision avoidance only applies at the destination (when bot is settled near home), not during travel. A little overlap during bot movement is acceptable; destinations must be overlap-free.
+
+4. **NO SCROLLING (unless necessary)** - The dashboard should fit in viewport without scrolling when ≤4 projects. Only allow scrolling when >4 projects or at very small resolutions. Cards should shrink to fit, not overflow.
 
 ### Calm UX (No Anxiety)
 

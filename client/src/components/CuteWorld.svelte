@@ -1089,13 +1089,17 @@
       }
 
       // DESIGN PRINCIPLE: NOTHING SHOULD OVERLAP
+      // DESIGN PRINCIPLE: BOUNDARY CONTAINMENT - bubbles must stay inside container
       // If no non-colliding position found:
-      // - Conductor/primary blocked: show anyway (user needs to see these)
+      // - Conductor/primary blocked: show anyway (user needs to see these), but CLAMP to bounds
       // - Subagents: skip the bubble to avoid overlap
       if (!foundPosition) {
         if (isConductor || isPrimaryBlocked) {
-          // Must show conductor/blocked bubbles - use ideal position
-          foundPosition = { left: idealLeft, top: preferBelow ? belowY : aboveY, bubbleBelow: preferBelow };
+          // Must show conductor/blocked bubbles - clamp to container bounds
+          const clampedLeft = Math.max(5, Math.min(containerWidth - width - 5, idealLeft));
+          const rawTop = preferBelow ? belowY : aboveY;
+          const clampedTop = Math.max(5, Math.min(containerHeight - height - 5, rawTop));
+          foundPosition = { left: clampedLeft, top: clampedTop, bubbleBelow: preferBelow };
         } else {
           // Skip subagent bubble to avoid overlap
           continue;
@@ -1464,15 +1468,25 @@
           ? bot.bubbleText
           : truncateForDisplay(bot.bubbleText, isConductor ? bubbleCharLimit + 100 : bubbleCharLimit)}
         {@const needsMarquee = !isPrimaryBlocked && !bubbleAllowWrap && !isConductor && displayText.length > marqueeThreshold}
-        <!-- When conductor is blocked in decision mode, use the repositioned center -->
+        <!-- DESIGN: Bubbles travel WITH their bots, tail always points at bot -->
+        <!-- Use current bot position for bubble placement, clamp to container bounds -->
         {@const actualBotCenterX = isPrimaryBlocked
           ? (containerWidth - decisionBubbleWidth) / 2 + decisionBubbleWidth / 2
           : bot.x + BOT_SIZE / 2}
-        <!-- Use pre-computed collision-free positions -->
         {@const bubbleWidth = computed.width}
-        {@const bubbleLeft = computed.left}
+        <!-- Position bubble centered on bot, clamped to container bounds -->
+        {@const idealBubbleLeft = actualBotCenterX - bubbleWidth / 2}
+        {@const bubbleLeft = Math.max(5, Math.min(containerWidth - bubbleWidth - 5, idealBubbleLeft))}
         {@const bubbleBelow = computed.bubbleBelow}
-        {@const clampedBubbleTop = computed.top}
+        <!-- Compute bubble top based on current bot Y position, clamped to container -->
+        {@const bubbleHeight = isPrimaryBlocked ? decisionBubbleHeight : isSoloConductor ? 80 : (isConductor ? 48 : 28)}
+        {@const tailHeightForCalc = 10}
+        {@const totalHeight = bubbleHeight + tailHeightForCalc}
+        {@const idealBubbleTop = bubbleBelow
+          ? bot.y + BOT_SIZE + 24 + 14 + 4
+          : bot.y - totalHeight - 14}
+        {@const clampedBubbleTop = Math.max(5, Math.min(containerHeight - totalHeight - 5, idealBubbleTop))}
+        <!-- Tail points directly at bot center - minimal offset since bubble follows bot -->
         {@const tailOffset = actualBotCenterX - bubbleLeft - bubbleWidth / 2}
         {@const tailX = Math.max(-bubbleWidth/2 + 20, Math.min(bubbleWidth/2 - 20, tailOffset))}
         {@const bubbleFill = bot.agent.status === 'blocked'
@@ -1487,7 +1501,7 @@
             : 'rgba(255, 255, 255, 0.2)'}
         <!-- SVG Speech Bubble - single path for seamless border around bubble+tail -->
         <!-- Solo conductor gets taller bubble (80px) for text wrapping -->
-        {@const bubbleHeight = isPrimaryBlocked ? decisionBubbleHeight : isSoloConductor ? 80 : (isConductor ? 48 : 28)}
+        <!-- bubbleHeight already computed above for positioning -->
         {@const tailHeight = 10}
         {@const tailWidth = 16}
         {@const radius = 8}

@@ -179,6 +179,52 @@ function checkPendingAskUserQuestion(transcriptPath: string): string | null {
   return null;
 }
 
+/**
+ * Check if a transcript shows a system error that requires user action
+ * (e.g., "Prompt is too long" - user needs to compact or shorten)
+ */
+function checkSystemError(transcriptPath: string): string | null {
+  try {
+    const content = readFileSync(transcriptPath, 'utf8');
+    const lines = content.trim().split('\n');
+
+    // System error patterns that require user action
+    const errorPatterns = [
+      { pattern: /prompt is too long/i, message: 'Prompt too long - needs /compact' },
+      { pattern: /context.*(too long|exceeded|overflow)/i, message: 'Context overflow - needs /compact' },
+      { pattern: /maximum.*tokens?.*(exceeded|reached)/i, message: 'Token limit reached - needs /compact' },
+    ];
+
+    // Check last 10 lines for system errors - ONLY match system-type messages
+    // Don't match user messages discussing errors (causes false positives)
+    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 10); i--) {
+      const rawLine = lines[i];
+
+      try {
+        const entry = JSON.parse(rawLine) as TranscriptEntry;
+
+        // If we find a user message, stop looking (error would be after last user input)
+        if (entry.type === 'user') break;
+
+        // ONLY check system messages for errors - these are actual CLI errors
+        if (entry.type === 'system' && entry.message) {
+          const msg = typeof entry.message === 'string' ? entry.message : JSON.stringify(entry.message);
+          for (const { pattern, message } of errorPatterns) {
+            if (pattern.test(msg)) {
+              return message;
+            }
+          }
+        }
+      } catch (e) {
+        // Skip malformed lines
+      }
+    }
+  } catch (e) {
+    // Ignore read errors
+  }
+  return null;
+}
+
 interface RateLimitInfo {
   isRateLimited: boolean;
   resetAt?: number; // Estimated reset timestamp
@@ -206,10 +252,11 @@ function checkRateLimit(transcriptPath: string): RateLimitInfo | null {
       /429/i, // HTTP 429 Too Many Requests
     ];
 
-    // Time patterns to extract reset time (e.g., "try again in 5 minutes", "resets at 2:00 PM")
+    // Time patterns to extract reset time (e.g., "try again in 5 minutes", "resets at 2:00 PM", "resets 8pm")
     const timePatterns = [
       /(?:in|after)\s+(\d+)\s*(minute|min|second|sec|hour|hr)s?/i,
       /(?:at|around)\s+(\d{1,2}):(\d{2})\s*(am|pm)?/i,
+      /resets?\s+(\d{1,2})\s*(am|pm)/i, // "resets 8pm" format (no colon)
       /(?:reset|available|ready)\s+(?:in|at)\s+(.+?)(?:\.|$)/i,
     ];
 
@@ -273,15 +320,31 @@ function parseRateLimitMessage(msg: string, timePatterns: RegExp[]): RateLimitIn
         const unit = match[2].toLowerCase();
         if (unit.startsWith('min')) {
           resetAt = now + amount * 60 * 1000;
+          break;
         } else if (unit.startsWith('sec')) {
           resetAt = now + amount * 1000;
+          break;
         } else if (unit.startsWith('hour') || unit.startsWith('hr')) {
           resetAt = now + amount * 60 * 60 * 1000;
+          break;
         }
-        break;
+        // "resets 8pm" format - match[1] is hour, match[2] is am/pm
+        if (unit === 'am' || unit === 'pm') {
+          let hours = amount;
+          if (unit === 'pm' && hours < 12) hours += 12;
+          if (unit === 'am' && hours === 12) hours = 0;
+
+          const resetDate = new Date();
+          resetDate.setHours(hours, 0, 0, 0);
+          if (resetDate.getTime() < now) {
+            resetDate.setDate(resetDate.getDate() + 1);
+          }
+          resetAt = resetDate.getTime();
+          break;
+        }
       }
       // "at X:XX PM"
-      if (match[1] && match[2] && !match[2].includes(':')) {
+      if (match[1] && match[2] && !match[2].includes(':') && match[3]) {
         let hours = parseInt(match[1], 10);
         const minutes = parseInt(match[2], 10);
         if (match[3]?.toLowerCase() === 'pm' && hours < 12) hours += 12;
@@ -701,6 +764,13 @@ export function checkPendingQuestions(): number {
             state.onAgentBlocked(sessionId, cwd, projectName, pendingQuestion, activityResult?.activity);
             updatedCount++;
           } else {
+            // Check for system errors (like "Prompt is too long") that require user action
+            const systemError = checkSystemError(transcriptPath);
+            if (systemError) {
+              // System error is a blocking state - user needs to take action
+              state.onAgentBlocked(sessionId, cwd, projectName, systemError, activityResult?.activity);
+              updatedCount++;
+            } else {
             // Check for rate limit BEFORE checking for unblock
             const rateLimitInfo = checkRateLimit(transcriptPath);
             if (rateLimitInfo?.isRateLimited) {
@@ -728,6 +798,7 @@ export function checkPendingQuestions(): number {
                   }
                 }
               }
+            }
             }
           }
         } catch (e) {
