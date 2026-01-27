@@ -26,6 +26,27 @@ app.use('*', cors());
 // Connected WebSocket clients
 const clients = new Set<WSContext>();
 
+// Auto-shutdown configuration
+const AUTO_SHUTDOWN_DELAY = 30 * 1000; // 30 seconds after last client disconnects
+let shutdownTimer: ReturnType<typeof setTimeout> | null = null;
+
+function startShutdownTimer(): void {
+  if (shutdownTimer) return; // Already running
+  console.log(`[Argus] No clients connected. Shutting down in ${AUTO_SHUTDOWN_DELAY / 1000}s...`);
+  shutdownTimer = setTimeout(() => {
+    console.log('[Argus] Auto-shutdown: No clients for 30s. Goodbye!');
+    process.exit(0);
+  }, AUTO_SHUTDOWN_DELAY);
+}
+
+function cancelShutdownTimer(): void {
+  if (shutdownTimer) {
+    clearTimeout(shutdownTimer);
+    shutdownTimer = null;
+    console.log('[Argus] Client connected. Shutdown cancelled.');
+  }
+}
+
 // Broadcast state to all connected clients
 function broadcast(message: WSMessage): void {
   const data = JSON.stringify(message);
@@ -92,6 +113,8 @@ app.get(
   upgradeWebSocket(() => ({
     onOpen: (_event, ws) => {
       clients.add(ws);
+      // Cancel any pending shutdown
+      cancelShutdownTimer();
       // Send current state on connect
       ws.send(
         JSON.stringify({
@@ -113,6 +136,10 @@ app.get(
     },
     onClose: (_event, ws) => {
       clients.delete(ws);
+      // Start shutdown timer if no clients remain
+      if (clients.size === 0) {
+        startShutdownTimer();
+      }
     },
   }))
 );

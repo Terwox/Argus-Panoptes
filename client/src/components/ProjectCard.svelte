@@ -25,8 +25,8 @@
   $: isFake = project.id.startsWith('fake-');
   $: isFocused = $focusedProject === project.id;
 
-  // Track 2: Expanded list view state
-  let todoExpanded = false;
+  // Track 2: Expanded list view state - default to open in detailed mode
+  let todoExpanded = detailed;
 
   // Format TODO progress for display
   function formatTodoProgress(todos: typeof conductor.todos, compact: boolean = false): string {

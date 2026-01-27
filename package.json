@@ -7,6 +7,7 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "vite client",
+    "dev:all": "concurrently --kill-others \"npm run dev:server\" \"npm run dev:client\" \"node scripts/open-browser.mjs\"",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build client",
     "build:server": "tsc",
