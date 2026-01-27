@@ -17,12 +17,45 @@
   $: blockedAgent = agents.find((a) => a.status === 'blocked');
   $: rateLimitedAgent = agents.find((a) => a.status === 'rate_limited');
   $: serverAgent = agents.find((a) => a.status === 'server_running');
+  $: conductor = agents.find((a) => a.type === 'main');
   $: isBlocked = project.status === 'blocked';
   $: isRateLimited = project.status === 'rate_limited';
   $: isServerRunning = project.status === 'server_running';
   $: isWorking = project.status === 'working';
   $: isFake = project.id.startsWith('fake-');
   $: isFocused = $focusedProject === project.id;
+
+  // Track 2: Expanded list view state
+  let todoExpanded = false;
+
+  // Format TODO progress for display
+  function formatTodoProgress(todos: typeof conductor.todos, compact: boolean = false): string {
+    if (!todos || todos.items.length === 0) return '';
+    const { counts } = todos;
+    const total = counts.pending + counts.inProgress + counts.completed;
+
+    // Track 3: Compact mode - just show counts
+    if (compact) {
+      return `${counts.completed}/${total}`;
+    }
+
+    // Find the in-progress task
+    const inProgressItem = todos.items.find(t => t.status === 'in_progress');
+    const currentTask = inProgressItem?.activeForm || inProgressItem?.content || '';
+
+    // Edge cases
+    if (counts.completed === total) {
+      return `All ${total} tasks done`;
+    }
+    if (counts.inProgress === 0 && counts.completed === 0) {
+      return `${total} tasks planned`;
+    }
+
+    // Normal case: show current task + counts
+    const remaining = counts.pending + counts.inProgress;
+    const taskText = currentTask ? currentTask.slice(0, 50) : 'Working';
+    return `${taskText}${currentTask.length > 50 ? '...' : ''} (${counts.completed} done, ${remaining} left)`;
+  }
 
   // Format rate limit reset time as friendly "Back at X:XX PM"
   function formatResetTime(timestamp: number | undefined): string {
@@ -220,6 +253,74 @@
       <AgentStatus {agents} />
     {/if}
   </div>
+
+  <!-- TODO Progress (below speech bubble / agent display) -->
+  <!-- Only show when there's active tracking - hide stale "All done" state -->
+  {#if conductor?.todos && (conductor.todos.counts.inProgress > 0 || conductor.todos.counts.pending > 0)}
+    {@const progress = formatTodoProgress(conductor.todos, $layoutMode === 'compact')}
+    {@const counts = conductor.todos.counts}
+    {@const total = counts.pending + counts.inProgress + counts.completed}
+    {@const inProgress = conductor.todos.items.find(t => t.status === 'in_progress')}
+    {@const completedPercent = Math.round((counts.completed / total) * 100)}
+    {@const textSize = $layoutMode === 'compact' ? 'text-[10px]' : 'text-xs'}
+
+    <!-- Track 4: Visual polish - clickable container with hover effect -->
+    <div
+      class="mt-2 px-2 py-1.5 bg-white/[0.03] rounded-lg border border-white/5 hover:bg-white/[0.05] transition-colors duration-200"
+      on:click={(e) => { e.stopPropagation(); todoExpanded = !todoExpanded; }}
+      role="button"
+      tabindex="0"
+      on:keydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); todoExpanded = !todoExpanded; }}}
+    >
+      <!-- Track 4: Progress bar -->
+      <div class="h-1 bg-white/10 rounded-full overflow-hidden mb-1.5">
+        <div
+          class="h-full bg-blue-500/50 transition-all duration-500 ease-out"
+          style="width: {completedPercent}%"
+        ></div>
+      </div>
+
+      <div class="flex items-center gap-2 {textSize} text-gray-400">
+        <!-- Track 2: Chevron indicator -->
+        <span class="flex-shrink-0 transition-transform duration-200 ease-out" style="transform: rotate({todoExpanded ? 90 : 0}deg)">
+          ▶
+        </span>
+
+        <!-- Status indicator -->
+        <span class="flex-shrink-0">
+          {#if counts.completed === total}
+            <span class="text-emerald-400">✓</span>
+          {:else if inProgress}
+            <span class="text-blue-400">●</span>
+          {:else}
+            <span class="text-gray-500">○</span>
+          {/if}
+        </span>
+
+        <!-- Progress text -->
+        <span class="truncate" title={progress}>
+          {progress}
+        </span>
+      </div>
+
+      <!-- Track 2: Expanded list view -->
+      {#if todoExpanded}
+        <div class="mt-2 space-y-1 {textSize} max-h-[200px] overflow-y-auto">
+          {#each conductor.todos.items as item}
+            <div class="flex items-center gap-2 text-gray-500">
+              <span class={item.status === 'completed' ? 'text-emerald-400' : item.status === 'in_progress' ? 'text-blue-400' : 'text-gray-500'}>
+                {item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '●' : '○'}
+              </span>
+              <!-- Track 4: In-progress tasks get blue color -->
+              <span class={item.status === 'in_progress' ? 'text-blue-300' : ''}>
+                {item.activeForm || item.content}
+              </span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   <!-- Blocked question (only show if not in cute mode, since CuteWorld shows it) -->
   {#if blockedAgent?.question && !($cuteMode && detailed)}

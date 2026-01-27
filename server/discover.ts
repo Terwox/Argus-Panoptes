@@ -603,6 +603,73 @@ function extractCurrentActivity(transcriptPath: string): ActivityResult | null {
   return null;
 }
 
+interface TodoItem {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  activeForm?: string;
+}
+
+interface TodosResult {
+  items: TodoItem[];
+  counts: { pending: number; inProgress: number; completed: number };
+}
+
+/**
+ * Extract full TODO list from a transcript (most recent TodoWrite call)
+ * Returns all todos with their statuses, not just the in_progress one
+ */
+function extractTodos(transcriptPath: string): TodosResult | null {
+  try {
+    const content = readFileSync(transcriptPath, 'utf8');
+    const lines = content.trim().split('\n');
+
+    // Read from end to find the most recent TodoWrite call
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(lines[i]) as TranscriptEntry;
+
+        if (entry.type === 'assistant' && entry.message?.content) {
+          const msgContent = entry.message.content;
+          if (!Array.isArray(msgContent)) continue;
+
+          for (const block of msgContent) {
+            if (block.type === 'tool_use' && block.name === 'TodoWrite' && block.input?.todos) {
+              const todos = block.input.todos;
+              const items: TodoItem[] = [];
+              let pending = 0;
+              let inProgress = 0;
+              let completed = 0;
+
+              for (const todo of todos) {
+                const status = (todo.status as 'pending' | 'in_progress' | 'completed') || 'pending';
+                items.push({
+                  content: todo.content || '',
+                  status,
+                  activeForm: todo.activeForm,
+                });
+
+                if (status === 'pending') pending++;
+                else if (status === 'in_progress') inProgress++;
+                else if (status === 'completed') completed++;
+              }
+
+              return {
+                items,
+                counts: { pending, inProgress, completed },
+              };
+            }
+          }
+        }
+      } catch (e) {
+        // Skip malformed lines
+      }
+    }
+  } catch (e) {
+    // Ignore read errors
+  }
+  return null;
+}
+
 /**
  * Extract task from a transcript (first user message)
  */
@@ -749,6 +816,13 @@ export function checkPendingQuestions(): number {
               activityResult.lineNumber
             );
             if (activityChanged) updatedCount++;
+          }
+
+          // Extract full TODO list for this conductor
+          const todos = extractTodos(transcriptPath);
+          if (todos) {
+            const todosChanged = state.updateAgentTodos(sessionId, cwd, todos);
+            if (todosChanged) updatedCount++;
           }
 
           // Extract last user message (per-project, not per-session)

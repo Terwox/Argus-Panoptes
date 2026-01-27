@@ -61,6 +61,10 @@ export interface Agent {
   transcriptPath?: string; // Path to transcript file for navigation
   transcriptLine?: number; // Line number in transcript for current activity
   rateLimitResetAt?: number; // Timestamp when rate limit resets (if rate limited)
+  todos?: {
+    items: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }>;
+    counts: { pending: number; inProgress: number; completed: number };
+  };
 }
 
 export interface Project {

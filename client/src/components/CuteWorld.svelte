@@ -590,6 +590,21 @@
     return clean;
   }
 
+  // Format TODO progress for display (matches ProjectCard format)
+  function formatTodoProgress(todos: Agent['todos']): string {
+    if (!todos || todos.items.length === 0) return '';
+    const { counts } = todos;
+    const total = counts.pending + counts.inProgress + counts.completed;
+    const inProgressItem = todos.items.find(t => t.status === 'in_progress');
+    const currentTask = inProgressItem?.activeForm || inProgressItem?.content || '';
+    if (counts.inProgress === 0 && counts.completed === 0) {
+      return `${total} tasks planned`;
+    }
+    const remaining = counts.pending + counts.inProgress;
+    const taskText = currentTask ? currentTask.slice(0, 50) : 'Working';
+    return `${taskText}${currentTask.length > 50 ? '...' : ''} (${counts.completed} done, ${remaining} left)`;
+  }
+
   function animate() {
     frameCount++;
 
@@ -1610,6 +1625,44 @@
         </div>
       </div>
     </div>
+  {/if}
+
+  <!-- TODO Progress Display (below conductor's speech bubble) -->
+  {#if bots.length > 0}
+    {@const conductorBot = bots.find(b => b.agent.type === 'main')}
+    {#if conductorBot && conductorBot.agent.todos && (conductorBot.agent.todos.counts.inProgress > 0 || conductorBot.agent.todos.counts.pending > 0)}
+    {@const conductorBubble = computedBubbles.find(b => b.botId === conductorBot.agent.id)}
+    <!-- Skip rendering in decision mode (blocked state has priority for screen space) -->
+    {#if conductorBubble && !decisionMode}
+      {@const todoProgressText = formatTodoProgress(conductorBot.agent.todos)}
+      {@const hasInProgress = conductorBot.agent.todos.counts.inProgress > 0}
+      <!-- Position below the bubble -->
+      {@const todoTop = conductorBubble.top + conductorBubble.height + 10}
+      {@const todoWidth = conductorBubble.width}
+      {@const todoLeft = conductorBubble.left}
+      <!-- Ensure it stays within container boundaries -->
+      {@const clampedTodoTop = Math.min(todoTop, containerHeight - 35)}
+      <div
+        class="absolute pointer-events-none"
+        style="
+          left: {todoLeft}px;
+          top: {clampedTodoTop}px;
+          width: {todoWidth}px;
+          z-index: 1500;
+        "
+      >
+        <div class="bg-white/[0.03] rounded-lg border border-white/5 px-2 py-1">
+          <div class="flex items-center gap-1.5 text-xs text-white/70">
+            <!-- Status icon: blue dot for in-progress, gray dot for pending only -->
+            <span class="{hasInProgress ? 'text-blue-400' : 'text-gray-500'}">
+              {hasInProgress ? '●' : '○'}
+            </span>
+            <span class="truncate">{todoProgressText}</span>
+          </div>
+        </div>
+      </div>
+    {/if}
+    {/if}
   {/if}
 
   <!-- Bots -->

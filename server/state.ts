@@ -556,6 +556,29 @@ export function updateLastUserMessage(
   return changed;
 }
 
+// Update todos for an agent
+export function updateAgentTodos(
+  sessionId: string,
+  projectPath: string,
+  todos: Agent['todos']
+): boolean {
+  const project = getProject(projectPath);
+  if (!project) return false;
+
+  const agents = project.agents as Map<string, Agent>;
+  const agent = agents.get(sessionId);
+  if (agent) {
+    // Check if todos actually changed (compare stringified)
+    const oldTodos = JSON.stringify(agent.todos);
+    const newTodos = JSON.stringify(todos);
+    if (oldTodos !== newTodos) {
+      agent.todos = todos;
+      return true;
+    }
+  }
+  return false;
+}
+
 // Background task completion - triggered when TaskOutput is read
 export function onBackgroundTaskComplete(
   projectPath: string,
