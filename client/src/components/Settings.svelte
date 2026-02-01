@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { layoutMode, soundEnabled } from '../stores/state';
+  import { layoutMode, soundEnabled, overloadMode } from '../stores/state';
   import { preloadChime } from '../lib/sounds';
 
   export let open = false;
@@ -17,6 +17,10 @@
       }
       return newValue;
     });
+  }
+
+  function toggleOverload() {
+    overloadMode.update(enabled => !enabled);
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -56,6 +60,18 @@
           <span class="label-text">Sound Notifications</span>
         </label>
         <p class="setting-description">Play a gentle chime when projects become blocked</p>
+      </div>
+
+      <div class="setting-group">
+        <label>
+          <input
+            type="checkbox"
+            checked={$overloadMode}
+            on:change={toggleOverload}
+          />
+          <span class="label-text">Overload Mode</span>
+        </label>
+        <p class="setting-description">Show ALL speech bubbles for ALL bots. Chaos! A goofy wreck of system state.</p>
       </div>
 
     </div>

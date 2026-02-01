@@ -17,6 +17,7 @@
     type ConjureAnimation,
     type BotReaction,
   } from '../lib/cuteWorldConfig';
+  import { overloadMode } from '../stores/state';
 
   export let agents: Agent[];
   export let height: number = 280;
@@ -919,10 +920,13 @@
     const conductorCount = bots.filter(b => b.agent.type === 'main').length;
     const hasMultipleConductors = conductorCount > 1;
 
+    // OVERLOAD MODE: Show ALL bubbles! CHAOS!
     // DECISION MODE: Only show bubbles for blocked agents (or clicked bots temporarily)
-    const visibleBots = decisionMode
-      ? bots.filter(b => b.agent.status === 'blocked' || b.forceShowBubble)
-      : bots;
+    const visibleBots = $overloadMode
+      ? bots // Show EVERYTHING
+      : decisionMode
+        ? bots.filter(b => b.agent.status === 'blocked' || b.forceShowBubble)
+        : bots;
 
     // Build list of obstacles: all bots, their name tags, and desks
     const obstacles: { left: number; top: number; width: number; height: number }[] = [];
@@ -963,8 +967,8 @@
       return a.y - b.y; // Top bots get priority
     });
 
-    // Limit how many subagent bubbles we show to prevent crowding (unless in decision mode)
-    const MAX_SUBAGENT_BUBBLES = decisionMode ? 10 : 3;
+    // Limit how many subagent bubbles we show to prevent crowding (unless in decision/overload mode)
+    const MAX_SUBAGENT_BUBBLES = $overloadMode ? 999 : decisionMode ? 10 : 3;
     let subagentBubblesShown = 0;
 
     for (const bot of sortedBots) {
