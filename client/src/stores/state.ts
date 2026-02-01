@@ -116,6 +116,22 @@ soundEnabled.subscribe($enabled => {
   }
 });
 
+// Overload mode: show ALL speech bubbles for ALL bots - chaos mode!
+function getOverloadModeFromStorage(): boolean {
+  if (typeof window === 'undefined') return false;
+  const stored = localStorage.getItem('argus-overload-mode');
+  return stored === 'true';
+}
+
+export const overloadMode = writable<boolean>(getOverloadModeFromStorage());
+
+// Sync to localStorage on change
+overloadMode.subscribe($enabled => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('argus-overload-mode', $enabled.toString());
+  }
+});
+
 // Track when projects were first seen (for stable ordering)
 const projectFirstSeen = new Map<string, number>();
 

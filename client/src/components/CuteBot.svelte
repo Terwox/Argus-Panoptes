@@ -232,11 +232,15 @@
         <path d="M 32 50 Q 37 45 42 50" stroke={eyeColor} stroke-width="3" fill="none" stroke-linecap="round" />
         <path d="M 58 50 Q 63 45 68 50" stroke={eyeColor} stroke-width="3" fill="none" stroke-linecap="round" />
       {:else if isIdle}
-        <!-- Relaxed half-closed eyes for idle state -->
-        <ellipse cx="37" cy="50" rx="6" ry="4" fill={eyeColor} />
-        <ellipse cx="63" cy="50" rx="6" ry="4" fill={eyeColor} />
-        <ellipse cx="38" cy="51" rx="3" ry="2" fill="#333" />
-        <ellipse cx="64" cy="51" rx="3" ry="2" fill="#333" />
+        <!-- Relaxed dreamy eyes for idle state - soft and content -->
+        <ellipse cx="37" cy="50" rx="6" ry="5" fill={eyeColor} />
+        <ellipse cx="63" cy="50" rx="6" ry="5" fill={eyeColor} />
+        <!-- Larger, softer pupils looking slightly down -->
+        <ellipse cx="37" cy="51" rx="3.5" ry="3" fill="#444" />
+        <ellipse cx="63" cy="51" rx="3.5" ry="3" fill="#444" />
+        <!-- Eye highlights for life -->
+        <circle cx="35" cy="49" r="1.5" fill="rgba(255,255,255,0.6)" />
+        <circle cx="61" cy="49" r="1.5" fill="rgba(255,255,255,0.6)" />
       {:else}
         <!-- Normal focused eyes -->
         <circle cx="37" cy="50" r="6" fill={eyeColor} />
