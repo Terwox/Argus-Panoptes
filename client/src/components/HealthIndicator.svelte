@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { prefersReducedMotion } from '../stores/state';
+
   export let stats: { total: number; blocked: number; working: number; idle: number; rateLimited?: number; serverRunning?: number };
 
   // Track previous state for pulse animation trigger
@@ -76,7 +78,7 @@
     <div
       class="w-2 h-2 rounded-full transition-colors duration-300"
       style="background-color: {dotColor}"
-      class:pulse={shouldPulse}
+      class:pulse={shouldPulse && !$prefersReducedMotion}
     />
   </div>
 

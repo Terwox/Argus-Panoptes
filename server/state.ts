@@ -96,6 +96,7 @@ function updateProjectStatus(project: Project): void {
   const agents = project.agents as Map<string, Agent>;
   const now = Date.now();
   let hasBlocked = false;
+  let hasError = false;
   let hasRateLimited = false;
   let hasServerRunning = false;
   let hasWorking = false;
@@ -126,23 +127,27 @@ function updateProjectStatus(project: Project): void {
     }
 
     if (agent.status === 'blocked') hasBlocked = true;
+    if (agent.status === 'error') hasError = true;
     if (agent.status === 'rate_limited') hasRateLimited = true;
     if (agent.status === 'server_running') hasServerRunning = true;
     // Count as "working" if heard from recently, OR if kept alive (plan mode / active subagents)
     if (agent.status === 'working') hasWorking = true;
   }
 
-  // Priority: blocked > rate_limited > working > server_running > idle
+  // Priority: error > blocked > rate_limited > working > server_running > idle
+  // Error is highest priority - something went wrong that needs attention
   // Server running is low priority - it's ambient, not attention-grabbing
-  const newStatus: ProjectStatus = hasBlocked
-    ? 'blocked'
-    : hasRateLimited
-      ? 'rate_limited'
-      : hasWorking
-        ? 'working'
-        : hasServerRunning
-          ? 'server_running'
-          : 'idle';
+  const newStatus: ProjectStatus = hasError
+    ? 'error'
+    : hasBlocked
+      ? 'blocked'
+      : hasRateLimited
+        ? 'rate_limited'
+        : hasWorking
+          ? 'working'
+          : hasServerRunning
+            ? 'server_running'
+            : 'idle';
 
   if (newStatus === 'blocked' && project.status !== 'blocked') {
     project.blockedSince = Date.now();
@@ -288,6 +293,41 @@ export function onAgentBlocked(
   return project;
 }
 
+// Agent encountered an error (system error, needs user intervention)
+export function onAgentError(
+  sessionId: string,
+  projectPath: string,
+  projectName: string,
+  errorMessage: string | undefined,
+  currentActivity?: string  // What they were doing when error occurred
+): Project {
+  const project = getOrCreateProject(projectPath, projectName);
+  const agents = project.agents as Map<string, Agent>;
+
+  let agent = agents.get(sessionId);
+  if (!agent) {
+    agent = {
+      id: sessionId,
+      name: 'main',
+      type: 'main',
+      status: 'working',
+      spawnedAt: Date.now(),
+      lastActivityAt: Date.now(),
+    };
+    agents.set(sessionId, agent);
+  }
+
+  agent.status = 'error';
+  agent.question = errorMessage; // Reuse question field for error message
+  if (currentActivity) {
+    agent.currentActivity = currentActivity;
+  }
+  agent.lastActivityAt = Date.now();
+
+  updateProjectStatus(project);
+  return project;
+}
+
 // Agent unblocked (user responded)
 export function onAgentUnblocked(
   sessionId: string,
@@ -299,7 +339,7 @@ export function onAgentUnblocked(
 
   // Only unblock the specific session that received input
   const agent = agents.get(sessionId);
-  if (agent && (agent.status === 'blocked' || agent.status === 'rate_limited')) {
+  if (agent && (agent.status === 'blocked' || agent.status === 'error' || agent.status === 'rate_limited')) {
     agent.status = 'working';
     agent.question = undefined;
     agent.rateLimitResetAt = undefined;

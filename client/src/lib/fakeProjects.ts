@@ -214,11 +214,13 @@ function generateFakeAgent(
   const role = ROLES[index % ROLES.length];
   const activity = getActivity(role);
 
-  // Random status weighted towards working (NEVER blocked - fake projects shouldn't distract)
+  // Random status weighted towards working (rare error for testing)
   const statusRoll = Math.random();
   let status: AgentStatus;
-  if (statusRoll < 0.75) {
+  if (statusRoll < 0.70) {
     status = 'working';
+  } else if (statusRoll < 0.75) {
+    status = 'error'; // Rare error state for testing
   } else {
     status = 'complete';
   }
@@ -259,13 +261,21 @@ function generateFakeProject(index: number, now: number): Project {
   // Determine project status from agents
   const agentList = Object.values(agents);
   const hasBlocked = agentList.some(a => a.status === 'blocked');
+  const hasError = agentList.some(a => a.status === 'error');
   const hasWorking = agentList.some(a => a.status === 'working');
+
+  // Add error message for error agents
+  agentList.forEach(agent => {
+    if (agent.status === 'error') {
+      agent.question = 'Prompt is too long - needs /compact';
+    }
+  });
 
   return {
     id,
     path: `/fake/${name}`,
     name: `Fake: ${name}`,
-    status: hasBlocked ? 'blocked' : hasWorking ? 'working' : 'idle',
+    status: hasError ? 'error' : hasBlocked ? 'blocked' : hasWorking ? 'working' : 'idle',
     lastActivityAt: now - Math.floor(Math.random() * 60000),
     blockedSince: hasBlocked ? now - Math.floor(Math.random() * 120000) : undefined,
     agents,
@@ -319,10 +329,17 @@ export function refreshFakeActivities(projects: Project[]): Project[] {
         ? getActivity(role)
         : agent.currentActivity;
 
-      // Small chance to change status (NEVER blocked - fake projects shouldn't distract)
+      // Small chance to change status (rare error for testing)
       let newStatus = agent.status;
       if (Math.random() < 0.05) {
-        newStatus = Math.random() < 0.75 ? 'working' : 'complete';
+        const roll = Math.random();
+        if (roll < 0.70) {
+          newStatus = 'working';
+        } else if (roll < 0.75) {
+          newStatus = 'error';
+        } else {
+          newStatus = 'complete';
+        }
       }
 
       updatedAgents[id] = {
@@ -331,19 +348,20 @@ export function refreshFakeActivities(projects: Project[]): Project[] {
         task: newActivity,
         status: newStatus,
         lastActivityAt: now,
-        // No question field - fake projects should never be blocked
+        question: newStatus === 'error' ? 'Prompt is too long - needs /compact' : undefined,
       };
     }
 
     // Recalculate project status
     const agentList = Object.values(updatedAgents);
     const hasBlocked = agentList.some(a => a.status === 'blocked');
+    const hasError = agentList.some(a => a.status === 'error');
     const hasWorking = agentList.some(a => a.status === 'working');
 
     return {
       ...project,
       agents: updatedAgents,
-      status: hasBlocked ? 'blocked' : hasWorking ? 'working' : 'idle',
+      status: hasError ? 'error' : hasBlocked ? 'blocked' : hasWorking ? 'working' : 'idle',
       lastActivityAt: now,
       blockedSince: hasBlocked && !project.blockedSince ? now : project.blockedSince,
       blockedAgentCount: agentList.filter(a => a.status === 'blocked').length,

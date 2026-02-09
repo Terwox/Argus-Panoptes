@@ -151,16 +151,20 @@
 
   $: pantsColor = pantsColors[roleCategory] || pantsColors.worker;
 
-  // Animation classes based on status
-  $: animationClass = status === 'working'
-    ? 'animate-bounce-slow'
-    : status === 'blocked'
-      ? 'animate-wiggle'
-      : status === 'rate_limited'
-        ? '' // Calm, no animation - just waiting
-        : status === 'server_running'
-          ? 'animate-pulse-slow' // Gentle pulse - server is alive
-          : '';
+  // Animation classes based on status (disabled if reduced motion preferred)
+  $: animationClass = $prefersReducedMotion ? '' : (
+    status === 'working'
+      ? 'animate-bounce-slow'
+      : status === 'blocked'
+        ? 'animate-wiggle'
+        : status === 'error'
+          ? 'animate-head-tilt' // Slight confused head tilt
+          : status === 'rate_limited'
+            ? '' // Calm, no animation - just waiting
+            : status === 'server_running'
+              ? 'animate-pulse-slow' // Gentle pulse - server is alive
+              : ''
+  );
 
   // Body colors by role when working - each role has distinct identity
   // DESIGN: Only conductor gets blue body - makes main bot easy to identify at a glance
@@ -199,20 +203,22 @@
 
   $: bodyColor = status === 'blocked'
     ? '#f59e0b' // amber - all bots
-    : status === 'rate_limited'
-      ? '#0ea5e9' // sky blue - calm, waiting for quota
-      : status === 'server_running'
-        ? '#10b981' // emerald - server is running
-        : status === 'working'
-          ? workingColor
-          : status === 'idle'
-            ? '#6b7280' // gray for idle - calm, neutral
-          : '#22c55e'; // green for complete - all bots
+    : status === 'error'
+      ? '#a855f7' // purple-500 - confused/error state
+      : status === 'rate_limited'
+        ? '#0ea5e9' // sky blue - calm, waiting for quota
+        : status === 'server_running'
+          ? '#10b981' // emerald - server is running
+          : status === 'working'
+            ? workingColor
+            : status === 'idle'
+              ? '#6b7280' // gray for idle - calm, neutral
+            : '#22c55e'; // green for complete - all bots
 
   $: eyeColor = isTired ? '#999' : '#fff';
 </script>
 
-<div class="inline-flex items-center justify-center {sizeClasses[size]} {animationClass} {bobble ? 'animate-bobble' : ''}">
+<div class="inline-flex items-center justify-center {sizeClasses[size]} {animationClass} {bobble && !$prefersReducedMotion ? 'animate-bobble' : ''}">
   <svg viewBox="0 0 100 100" class="w-full h-full" aria-hidden="true">
     <!-- Body -->
     <rect
@@ -226,9 +232,9 @@
     <g class="bot-part bot-antenna {conjuring ? `conjure-${conjureAnimation}` : ''}" style="--part-delay: 0.3s;">
       <line x1="50" y1="30" x2="50" y2="15" stroke={bodyColor} stroke-width="4" stroke-linecap="round" />
       <!-- Glowing antenna light - outer glow -->
-      <circle cx="50" cy="12" r="8" fill={bodyColor} class="animate-glow" />
+      <circle cx="50" cy="12" r="8" fill={bodyColor} class={$prefersReducedMotion ? '' : 'animate-glow'} />
       <!-- Inner solid light -->
-      <circle cx="50" cy="12" r="5" fill={bodyColor} class={status === 'working' ? 'animate-pulse' : ''} />
+      <circle cx="50" cy="12" r="5" fill={bodyColor} class={status === 'working' && !$prefersReducedMotion ? 'animate-pulse' : ''} />
       <!-- Highlight -->
       <circle cx="48" cy="10" r="2" fill="white" opacity="0.7" />
     </g>
@@ -249,6 +255,12 @@
         <circle cx="63" cy="50" r="8" fill={eyeColor} />
         <circle cx="37" cy="50" r="4" fill="#333" />
         <circle cx="63" cy="50" r="4" fill="#333" />
+      {:else if status === 'error'}
+        <!-- Confused eyes - asymmetric, one higher than other -->
+        <circle cx="37" cy="48" r="6" fill={eyeColor} />
+        <circle cx="63" cy="52" r="6" fill={eyeColor} />
+        <circle cx="37" cy="48" r="3" fill="#333" />
+        <circle cx="63" cy="52" r="3" fill="#333" />
       {:else if status === 'rate_limited'}
         <!-- Calm/content eyes - waiting patiently (like coffee break) -->
         <ellipse cx="37" cy="50" rx="5" ry="4" fill={eyeColor} />
@@ -289,6 +301,11 @@
       {#if status === 'blocked'}
         <!-- Worried open mouth -->
         <ellipse cx="50" cy="68" rx="8" ry="6" fill="#333" />
+      {:else if status === 'error'}
+        <!-- Confused mouth - small puzzled "o" -->
+        <ellipse cx="50" cy="68" rx="5" ry="6" fill="none" stroke="#333" stroke-width="2.5" />
+        <!-- Optional: Add small question mark accessory -->
+        <text x="73" y="42" font-size="10" fill="#a855f7" opacity="0.6">?</text>
       {:else if status === 'rate_limited'}
         <!-- Content smile - taking a break -->
         <path d="M 42 66 Q 50 70 58 66" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" />
@@ -311,7 +328,7 @@
     </g>
 
     <!-- Arm holding object (right side) -->
-    <g class="bot-part bot-arm-right {conjuring ? `conjure-${conjureAnimation}` : ''} {status === 'working' ? 'animate-wave' : ''}" style="--part-delay: 0.2s;">
+    <g class="bot-part bot-arm-right {conjuring ? `conjure-${conjureAnimation}` : ''} {status === 'working' && !$prefersReducedMotion ? 'animate-wave' : ''}" style="--part-delay: 0.2s;">
       <!-- Arm -->
       <rect x="78" y="48" width="14" height="6" rx="3" fill={bodyColor} />
 
@@ -715,6 +732,15 @@
 
   .animate-wiggle {
     animation: wiggle 0.5s ease-in-out infinite;
+  }
+
+  @keyframes head-tilt {
+    0%, 100% { transform: rotate(0deg); }
+    50% { transform: rotate(-5deg); }
+  }
+
+  .animate-head-tilt {
+    animation: head-tilt 1.5s ease-in-out infinite;
   }
 
   @keyframes pulse-slow {

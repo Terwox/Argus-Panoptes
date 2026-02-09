@@ -4,9 +4,12 @@
   import AgentStatus from './AgentStatus.svelte';
   import BlockedQuestion from './BlockedQuestion.svelte';
   import CuteWorld from './CuteWorld.svelte';
+  import { createEventDispatcher } from 'svelte';
   import { bounce } from '../lib/bounce';
   import { cuteMode, focusedProject, archiveProject, layoutMode } from '../stores/state';
   import { toasts } from '../stores/toast';
+
+  const dispatch = createEventDispatcher();
 
   export let project: Project;
   export let detailed: boolean = false;
@@ -15,10 +18,12 @@
 
   $: agents = Object.values(project.agents);
   $: blockedAgent = agents.find((a) => a.status === 'blocked');
+  $: errorAgent = agents.find((a) => a.status === 'error');
   $: rateLimitedAgent = agents.find((a) => a.status === 'rate_limited');
   $: serverAgent = agents.find((a) => a.status === 'server_running');
   $: conductor = agents.find((a) => a.type === 'main');
   $: isBlocked = project.status === 'blocked';
+  $: isError = project.status === 'error';
   $: isRateLimited = project.status === 'rate_limited';
   $: isServerRunning = project.status === 'server_running';
   $: isWorking = project.status === 'working';
@@ -98,20 +103,22 @@
 
   $: bgColor = isBlocked
     ? 'bg-blocked/5'
-    : isRateLimited
-      ? 'bg-sky-500/5'
-      : isServerRunning
-        ? 'bg-emerald-500/5'
-        : isWorking
-          ? 'bg-working/5'
-          : 'bg-[var(--bg-muted)]';
+    : isError
+      ? 'bg-purple-500/5'
+      : isRateLimited
+        ? 'bg-sky-500/5'
+        : isServerRunning
+          ? 'bg-emerald-500/5'
+          : isWorking
+            ? 'bg-working/5'
+            : 'bg-[var(--bg-muted)]';
 
   $: opacityClass = dimmed
-    ? (isBlocked ? 'opacity-50' : 'opacity-30')
+    ? (isBlocked || isError ? 'opacity-50' : 'opacity-30')
     : '';
 
   async function handleBounce() {
-    // Copy question to clipboard if blocked
+    // Copy question/error to clipboard if blocked or error
     if (isBlocked && blockedAgent?.question && navigator.clipboard) {
       try {
         await navigator.clipboard.writeText(blockedAgent.question);
@@ -120,7 +127,15 @@
         console.error('Failed to copy to clipboard:', err);
       }
     }
-    bounce(project.path, blockedAgent?.question);
+    if (isError && errorAgent?.question && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(errorAgent.question);
+        toasts.addToast('Error message copied to clipboard', 'success');
+      } catch (err) {
+        console.error('Failed to copy to clipboard:', err);
+      }
+    }
+    bounce(project.path, blockedAgent?.question || errorAgent?.question);
   }
 
   function toggleFocus() {
@@ -149,8 +164,8 @@
   class="rounded-xl border-2 {borderColor} {bgColor} {opacityClass} p-4 transition-all duration-200 flex flex-col
          hover:border-[var(--border-hover)] hover:bg-[var(--bg-card-hover)] hover:shadow-lg
          {selected ? 'ring-2 ring-blue-500' : ''}
-         {(isBlocked || isFocused) && $layoutMode !== 'compact' ? 'md:col-span-2 lg:col-span-2' : ''}
-         {isFocused && !isBlocked ? 'ring-2 ring-blue-400/50 shadow-xl shadow-blue-500/10' : ''}
+         {(isBlocked || isError || isFocused) && $layoutMode !== 'compact' ? 'md:col-span-2 lg:col-span-2' : ''}
+         {isFocused && !isBlocked && !isError ? 'ring-2 ring-blue-400/50 shadow-xl shadow-blue-500/10' : ''}
          {$layoutMode === 'compact' ? 'max-w-[350px] mx-auto w-full' : ''}"
   on:click={handleCardClick}
   role="button"
@@ -161,7 +176,14 @@
   <!-- Header -->
   <div class="flex items-start justify-between mb-3">
     <div class="flex-1">
-      <h3 class="font-semibold text-lg flex items-center gap-2">
+      <!-- svelte-ignore a11y-click-events-have-key-events -->
+      <!-- svelte-ignore a11y-no-static-element-interactions -->
+      <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+      <h3
+        class="font-semibold text-lg flex items-center gap-2 cursor-default hover:text-blue-400 transition-colors"
+        on:click|stopPropagation={() => dispatch('openDetail', project)}
+        title="Click for details"
+      >
         {project.name}
         {#if isBlocked}
           <!-- DESIGN: No timers or pulsing - avoid inducing anxiety. Calm context-switching, not GO-GO-GO urgency -->
@@ -175,6 +197,12 @@
               : 'Needs input'}
           <span class="text-blocked text-sm font-normal" title={displayText}>
             {displayText.slice(0, 40)}{displayText.length > 40 ? '...' : ''}
+          </span>
+        {:else if isError}
+          <!-- DESIGN: Error state - show the error message calmly, confused not panicked -->
+          {@const errorMessage = errorAgent?.question || 'System error'}
+          <span class="text-purple-400 text-sm font-normal" title={errorMessage}>
+            ⚠️ {errorMessage.slice(0, 40)}{errorMessage.length > 40 ? '...' : ''}
           </span>
         {:else if isRateLimited}
           <!-- DESIGN: Calm "waiting for quota" - no anxiety, just a friendly timer -->
@@ -193,7 +221,14 @@
           <span class="text-[var(--text-muted)] text-sm font-normal">Idle</span>
         {/if}
       </h3>
-      <p class="text-xs text-[var(--text-muted)] truncate max-w-[300px]" title={project.path}>
+      <!-- svelte-ignore a11y-click-events-have-key-events -->
+      <!-- svelte-ignore a11y-no-static-element-interactions -->
+      <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+      <p
+        class="text-xs text-[var(--text-muted)] truncate max-w-[300px] hover:text-blue-400 transition-colors cursor-default"
+        title={project.path}
+        on:click|stopPropagation={() => dispatch('openDetail', project)}
+      >
         {project.path}
       </p>
       {#if project.lastUserMessage && !isBlocked}
@@ -217,8 +252,8 @@
           {isFocused ? '⊙' : '○'}
         </button>
 
-        <!-- Archive button (hide for blocked projects) -->
-        {#if !isBlocked}
+        <!-- Archive button (hide for blocked/error projects) -->
+        {#if !isBlocked && !isError}
           <button
             class="p-1.5 text-sm rounded-lg transition-colors bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-300"
             on:click={handleArchive}
@@ -233,11 +268,13 @@
           class="px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1.5
                  {isBlocked
                    ? 'bg-blocked text-black font-medium hover:bg-blocked/90'
-                   : 'bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted-hover)]'}"
+                   : isError
+                     ? 'bg-purple-500 text-white font-medium hover:bg-purple-600'
+                     : 'bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted-hover)]'}"
           on:click={handleBounce}
         >
           <span>→</span>
-          {isBlocked ? 'Open in VS Code' : 'VS Code'}
+          {isBlocked ? 'Open in VS Code' : isError ? 'Fix Error' : 'VS Code'}
         </button>
       {/if}
     </div>

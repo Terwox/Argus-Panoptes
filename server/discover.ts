@@ -1070,8 +1070,8 @@ export function checkPendingQuestions(): number {
             // Check for system errors (like "Prompt is too long") that require user action
             const systemError = checkSystemError(transcriptPath);
             if (systemError) {
-              // System error is a blocking state - user needs to take action
-              state.onAgentBlocked(sessionId, cwd, projectName, systemError, activityResult?.activity);
+              // System error is an error state - distinct from blocked
+              state.onAgentError(sessionId, cwd, projectName, systemError, activityResult?.activity);
               updatedCount++;
             } else {
             // Check for rate limit BEFORE checking for unblock
@@ -1088,13 +1088,13 @@ export function checkPendingQuestions(): number {
                 state.onAgentServerRunning(sessionId, cwd, projectName, serverInfo.serverType, serverInfo.port);
                 updatedCount++;
               } else {
-                // No pending question, no rate limit, no server - check if we should unblock
+                // No pending question, no error, no rate limit, no server - check if we should unblock
                 // This handles the case where a question was answered but hooks didn't fire
                 const project = state.getProject(cwd);
                 if (project) {
                   const agents = project.agents as Map<string, { status: string }>;
                   const agent = agents.get(sessionId);
-                  if (agent && (agent.status === 'blocked' || agent.status === 'rate_limited' || agent.status === 'server_running')) {
+                  if (agent && (agent.status === 'blocked' || agent.status === 'error' || agent.status === 'rate_limited' || agent.status === 'server_running')) {
                     // Agent was in special state but no longer - return to working
                     state.onAgentUnblocked(sessionId, cwd, projectName);
                     updatedCount++;

@@ -6,6 +6,7 @@
   export let agents: Agent[];
 
   $: blocked = agents.filter((a) => a.status === 'blocked').length;
+  $: error = agents.filter((a) => a.status === 'error').length;
   $: working = agents.filter((a) => a.status === 'working').length;
   $: complete = agents.filter((a) => a.status === 'complete').length;
   $: total = agents.length;
@@ -20,6 +21,17 @@
         <span>💬</span>
       {/if}
       {blocked} blocked
+    </span>
+  {/if}
+
+  {#if error > 0}
+    <span class="flex items-center gap-1 text-purple-500">
+      {#if $cuteMode}
+        <CuteBot status="error" size="xs" />
+      {:else}
+        <span>⚠️</span>
+      {/if}
+      {error} error
     </span>
   {/if}
 

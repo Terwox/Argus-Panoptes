@@ -88,6 +88,30 @@ export const RESTLESSNESS = {
   FRUSTRATION_COOLDOWN_RATE: 32,
 } as const;
 
+/** Collaboration clustering - subtle proximity when agents collaborate */
+export const CLUSTERING = {
+  /** Minimum distance between collaborating bots (px) - closer than normal but no overlap */
+  MIN_CLUSTER_DISTANCE: 50,
+
+  /** Radius around conductor where collaborating subagents gravitate (px) */
+  CLUSTER_RADIUS: 100,
+
+  /** Strength of pull toward conductor when collaborating (vs HOME_PULL 0.002) */
+  CLUSTER_PULL: 0.004,
+
+  /** Repulsion multiplier for collaborating pairs (1.0 = full, 0.4 = softer) */
+  CLUSTER_REPULSION_FACTOR: 0.4,
+
+  /** Connector line opacity (very subtle) */
+  CONNECTOR_OPACITY: 0.15,
+
+  /** Connector line dash pattern */
+  CONNECTOR_DASH: '4 6',
+
+  /** Connector line width */
+  CONNECTOR_WIDTH: 1.5,
+} as const;
+
 /** Relocation animation */
 export const RELOCATION = {
   /** Pull strength when walking to new desk */

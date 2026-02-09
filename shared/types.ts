@@ -34,8 +34,8 @@ export interface ArgusEvent {
 // State (maintained by server, sent to UI)
 // ============================================
 
-export type ProjectStatus = 'idle' | 'working' | 'blocked' | 'rate_limited' | 'server_running';
-export type AgentStatus = 'idle' | 'working' | 'blocked' | 'complete' | 'rate_limited' | 'server_running';
+export type ProjectStatus = 'idle' | 'working' | 'blocked' | 'error' | 'rate_limited' | 'server_running';
+export type AgentStatus = 'idle' | 'working' | 'blocked' | 'complete' | 'error' | 'rate_limited' | 'server_running';
 
 export interface SessionModes {
   ralph?: boolean;
