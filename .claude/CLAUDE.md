@@ -100,6 +100,10 @@ The dashboard runs at http://localhost:5173.
 
 **NEVER kill all Chrome processes** - The user is coworking and uses Chrome. Instead, use the screenshot script which launches its own browser instance. If screenshots are timing out, debug the script itself rather than killing processes.
 
+## Known Issues
+
+- **`start.bat` doesn't work yet** — `npm run dev:all` relies on `concurrently` which isn't found outside VS Code's terminal. PATH resolution for node, npm, and local `node_modules/.bin` binaries fails when launched from Explorer/double-click. Workaround: start server and client from VS Code terminal.
+
 ## Development
 
 - Server: `npm run dev:server` (runs on port 4242)
