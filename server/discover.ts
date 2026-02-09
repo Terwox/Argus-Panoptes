@@ -934,6 +934,45 @@ export function checkPendingQuestions(): number {
 }
 
 /**
+ * Fast activity-only check for known active sessions.
+ * Lightweight: only reads last 30 lines of transcript for activity + todos.
+ * Skips heavy checks (blocking, rate limits, server detection, task extraction).
+ * Designed to run every ~3 seconds for near-real-time thought streaming.
+ */
+export function fastActivityCheck(): number {
+  const activeAgents = state.getActiveAgentTranscripts();
+  if (activeAgents.length === 0) return 0;
+
+  let updatedCount = 0;
+
+  for (const { sessionId, projectPath, transcriptPath } of activeAgents) {
+    try {
+      const activityResult = extractCurrentActivity(transcriptPath);
+      if (activityResult) {
+        const changed = state.updateCurrentActivity(
+          sessionId,
+          projectPath,
+          activityResult.activity,
+          transcriptPath,
+          activityResult.lineNumber
+        );
+        if (changed) updatedCount++;
+      }
+
+      const todos = extractTodos(transcriptPath);
+      if (todos) {
+        const todosChanged = state.updateAgentTodos(sessionId, projectPath, todos);
+        if (todosChanged) updatedCount++;
+      }
+    } catch {
+      // Skip inaccessible transcripts
+    }
+  }
+
+  return updatedCount;
+}
+
+/**
  * Discover and register existing Claude sessions
  */
 export function discoverExistingSessions(): number {

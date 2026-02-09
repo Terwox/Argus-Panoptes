@@ -651,6 +651,37 @@ export function onBackgroundTaskComplete(
   return undefined;
 }
 
+// Get all active (working) agents with their transcript paths for fast polling
+export function getActiveAgentTranscripts(): Array<{
+  sessionId: string;
+  projectPath: string;
+  projectName: string;
+  transcriptPath: string;
+}> {
+  const result: Array<{
+    sessionId: string;
+    projectPath: string;
+    projectName: string;
+    transcriptPath: string;
+  }> = [];
+
+  for (const project of projects.values()) {
+    const agents = project.agents as Map<string, Agent>;
+    for (const [agentId, agent] of agents) {
+      if (agent.status === 'working' && agent.transcriptPath) {
+        result.push({
+          sessionId: agentId,
+          projectPath: project.path,
+          projectName: project.name,
+          transcriptPath: agent.transcriptPath,
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
 // Force refresh of project statuses (for periodic idle detection)
 export function refreshAllProjectStatuses(): void {
   for (const project of projects.values()) {

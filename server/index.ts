@@ -12,7 +12,7 @@ import type { WSContext } from 'hono/ws';
 import type { ArgusEvent, WSMessage } from '../shared/types.js';
 import { handleEvent } from './events.js';
 import * as state from './state.js';
-import { discoverExistingSessions, checkPendingQuestions } from './discover.js';
+import { discoverExistingSessions, checkPendingQuestions, fastActivityCheck } from './discover.js';
 import { getFakeActivitiesFromGit } from './gitScanner.js';
 
 const PORT = parseInt(process.env.ARGUS_PORT || '4242', 10);
@@ -159,6 +159,18 @@ setInterval(() => {
     payload: state.getState(),
   });
 }, 30 * 1000);
+
+// Fast activity poll every 3 seconds for near-real-time thought streaming
+// Lightweight: only reads last 30 lines of active transcripts for activity changes
+setInterval(() => {
+  const updated = fastActivityCheck();
+  if (updated > 0) {
+    broadcast({
+      type: 'state_update',
+      payload: state.getState(),
+    });
+  }
+}, 3 * 1000);
 
 // Check for pending AskUserQuestion calls every 10 seconds
 // This catches cases where the AskUserQuestion tool doesn't trigger hooks
