@@ -11,7 +11,7 @@
 <div class="flex items-center gap-4 text-sm">
   <!-- Agent counts only - NO TIMERS -->
   <div class="flex items-center gap-2">
-    <span class="text-gray-500">Agents:</span>
+    <span class="text-[var(--text-muted)]">Agents:</span>
     {#if $metrics.workingAgents > 0}
       <span class="text-working font-medium">{$metrics.workingAgents} working</span>
     {/if}

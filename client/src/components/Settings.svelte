@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { layoutMode, soundEnabled, overloadMode } from '../stores/state';
+  import { layoutMode, soundEnabled, overloadMode, themeMode } from '../stores/state';
   import { preloadChime } from '../lib/sounds';
 
   export let open = false;
@@ -37,6 +37,28 @@
     <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
     <div class="settings-panel" on:click|stopPropagation on:keydown={handleKeydown} role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <h3 id="settings-title">Settings</h3>
+
+      <div class="setting-group">
+        <span class="label-text">Theme</span>
+        <div class="theme-selector">
+          <button
+            class="theme-btn"
+            class:active={$themeMode === 'system'}
+            on:click={() => themeMode.set('system')}
+          >System</button>
+          <button
+            class="theme-btn"
+            class:active={$themeMode === 'light'}
+            on:click={() => themeMode.set('light')}
+          >Light</button>
+          <button
+            class="theme-btn"
+            class:active={$themeMode === 'dark'}
+            on:click={() => themeMode.set('dark')}
+          >Dark</button>
+        </div>
+        <p class="setting-description">Follow your OS preference, or force a specific theme</p>
+      </div>
 
       <div class="setting-group">
         <label>
@@ -85,7 +107,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--bg-overlay);
     display: flex;
     align-items: flex-start;
     justify-content: flex-end;
@@ -94,7 +116,7 @@
   }
 
   .settings-panel {
-    background: white;
+    background: var(--panel-bg);
     border-radius: 0.75rem;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
     padding: 1.5rem;
@@ -118,13 +140,13 @@
     margin: 0 0 1.5rem 0;
     font-size: 1.25rem;
     font-weight: 600;
-    color: #1f2937;
+    color: var(--panel-text);
   }
 
   .setting-group {
     margin-bottom: 1.5rem;
     padding-bottom: 1.5rem;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--panel-border);
   }
 
   .setting-group:last-child {
@@ -151,14 +173,41 @@
     margin-left: 0.75rem;
     font-size: 1rem;
     font-weight: 500;
-    color: #1f2937;
+    color: var(--panel-text);
   }
 
   .setting-description {
     margin: 0.5rem 0 0 2rem;
     font-size: 0.875rem;
-    color: #6b7280;
+    color: var(--panel-description);
     line-height: 1.4;
   }
 
+  .theme-selector {
+    display: flex;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0 0.75rem;
+  }
+
+  .theme-btn {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--panel-border);
+    background: transparent;
+    color: var(--panel-description);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .theme-btn:hover {
+    border-color: #3b82f6;
+    color: var(--panel-text);
+  }
+
+  .theme-btn.active {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: white;
+  }
 </style>

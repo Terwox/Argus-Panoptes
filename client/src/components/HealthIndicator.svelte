@@ -94,7 +94,7 @@
   <!-- Hover tooltip -->
   {#if showTooltip && stats.total > 0}
     <div
-      class="absolute top-full left-0 mt-2 px-3 py-1.5 rounded-lg bg-black/90 border border-white/10 text-xs text-gray-300 whitespace-nowrap z-50 pointer-events-none"
+      class="absolute top-full left-0 mt-2 px-3 py-1.5 rounded-lg bg-[var(--tooltip-bg)] border border-[var(--border-default)] text-xs text-[var(--tooltip-text)] whitespace-nowrap z-50 pointer-events-none"
     >
       {tooltipText}
     </div>
