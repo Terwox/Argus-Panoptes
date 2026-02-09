@@ -214,9 +214,9 @@
 
 <svelte:window on:keydown={handleKeydown} />
 
-<div class="h-screen flex flex-col bg-[#0f0f0f] text-white overflow-hidden">
+<div class="h-screen flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)] overflow-hidden">
   <!-- Header -->
-  <header class="flex-shrink-0 bg-[#0f0f0f]/90 backdrop-blur border-b border-white/10">
+  <header class="flex-shrink-0 bg-[var(--bg-primary)] backdrop-blur border-b border-[var(--border-default)]">
     <div class="max-w-[1800px] mx-auto px-4 py-3 flex items-center justify-between">
       <div class="flex items-center gap-3">
         <span class="text-2xl">ꙮ</span>
@@ -224,7 +224,7 @@
         <span
           class="text-xs px-2 py-0.5 rounded-full {$connected
             ? 'bg-green-500/20 text-green-400'
-            : 'bg-red-500/20 text-red-400'}"
+            : 'bg-amber-500/10 text-amber-400/70'}"
         >
           {$connected ? 'Connected' : 'Disconnected'}
         </span>
@@ -249,7 +249,7 @@
         <button
           class="px-2 py-1 text-sm rounded-lg transition-colors {$cuteMode
             ? 'bg-pink-500/20 text-pink-300'
-            : 'bg-white/5 text-gray-400 hover:bg-white/10'}"
+            : 'bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted-hover)]'}"
           on:click={toggleCute}
           title="Toggle cute bot mode"
         >
@@ -261,7 +261,7 @@
           <button
             class="px-2 py-1 text-sm rounded-lg transition-colors {$fakeMode
               ? 'bg-purple-500/20 text-purple-300'
-              : 'bg-white/5 text-gray-400 hover:bg-white/10'}"
+              : 'bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted-hover)]'}"
             on:click={toggleFake}
             title="Toggle demo projects"
           >
@@ -273,7 +273,7 @@
         <button
           class="px-2 py-1 text-sm rounded-lg transition-colors {showSettings
             ? 'bg-blue-500/20 text-blue-300'
-            : 'bg-white/5 text-gray-400 hover:bg-white/10'}"
+            : 'bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted-hover)]'}"
           on:click={() => showSettings = !showSettings}
           title="Settings"
         >
@@ -285,7 +285,7 @@
 
   <!-- Scoreboard (secondary stats bar) -->
   {#if $sortedProjects.length > 0}
-    <div class="flex-shrink-0 bg-[#0f0f0f]/80 border-b border-white/5">
+    <div class="flex-shrink-0 bg-[var(--bg-primary)] border-b border-[var(--border-subtle)]">
       <div class="max-w-[1800px] mx-auto px-4 py-2">
         <Scoreboard />
       </div>
@@ -301,7 +301,7 @@
         <div class="flex flex-col items-center justify-center h-full text-center">
           <span class="text-6xl mb-4">ꙮ</span>
           <h2 class="text-xl font-medium mb-2">No active sessions</h2>
-          <p class="text-gray-500 max-w-md">
+          <p class="text-[var(--text-muted)] max-w-md">
             Start a Claude Code session with the Argus hook enabled. Sessions will
             appear here automatically.
           </p>

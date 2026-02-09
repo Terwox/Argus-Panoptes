@@ -17,7 +17,7 @@
     type ConjureAnimation,
     type BotReaction,
   } from '../lib/cuteWorldConfig';
-  import { overloadMode } from '../stores/state';
+  import { overloadMode, prefersReducedMotion } from '../stores/state';
 
   export let agents: Agent[];
   export let height: number = 280;
@@ -100,6 +100,13 @@
 
     lastConjureAnimation = next;
     return next;
+  }
+
+  // Tired threshold: 30+ minutes of working time
+  const TIRED_THRESHOLD = 30 * 60 * 1000;
+  function isBotTired(agent: Agent): boolean {
+    if (agent.status === 'complete' || !agent.workingTime) return false;
+    return agent.workingTime >= TIRED_THRESHOLD;
   }
 
   // Box-Muller transform for normally distributed random numbers
@@ -608,6 +615,25 @@
 
   function animate() {
     frameCount++;
+
+    // Accessibility: skip physics when reduced motion is preferred
+    // Bots snap to home positions, no wandering or conjure animations
+    if ($prefersReducedMotion) {
+      for (const bot of bots) {
+        if (bot.spawning) {
+          bot.spawning = false;
+          bot.scale = 1;
+          bot.conjureProgress = 1;
+        }
+        bot.x = bot.homeX;
+        bot.y = bot.homeY;
+        bot.vx = 0;
+        bot.vy = 0;
+      }
+      bots = bots;
+      animationFrame = requestAnimationFrame(animate);
+      return;
+    }
 
     // Physics constants
     const FRICTION = 0.98; // Velocity decay
@@ -1512,12 +1538,12 @@
           ? 'rgba(245, 158, 11, 0.3)'
           : bot.agent.status === 'complete'
             ? 'rgba(34, 197, 94, 0.3)'
-            : 'rgba(255, 255, 255, 0.1)'}
+            : 'var(--bubble-fill)'}
         {@const bubbleStroke = bot.agent.status === 'blocked'
           ? 'rgba(245, 158, 11, 0.4)'
           : bot.agent.status === 'complete'
             ? 'rgba(34, 197, 94, 0.4)'
-            : 'rgba(255, 255, 255, 0.2)'}
+            : 'var(--bubble-stroke)'}
         <!-- SVG Speech Bubble - single path for seamless border around bubble+tail -->
         <!-- Solo conductor gets taller bubble (80px) for text wrapping -->
         <!-- bubbleHeight already computed above for positioning -->
@@ -1590,7 +1616,7 @@
                      ? 'text-amber-200'
                      : bot.agent.status === 'complete'
                        ? 'text-green-200'
-                       : 'text-white/90'}"
+                       : 'text-[var(--bubble-text)]'}"
             style="
               left: 12px;
               top: {bubbleBelow ? tailHeight + 6 : 6}px;
@@ -1655,10 +1681,10 @@
           z-index: 1500;
         "
       >
-        <div class="bg-white/[0.03] rounded-lg border border-white/5 px-2 py-1">
-          <div class="flex items-center gap-1.5 text-xs text-white/70">
+        <div class="bg-[var(--bg-muted)] rounded-lg border border-[var(--border-subtle)] px-2 py-1">
+          <div class="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
             <!-- Status icon: blue dot for in-progress, gray dot for pending only -->
-            <span class="{hasInProgress ? 'text-blue-400' : 'text-gray-500'}">
+            <span class="{hasInProgress ? 'text-blue-400' : 'text-[var(--text-muted)]'}">
               {hasInProgress ? '●' : '○'}
             </span>
             <span class="truncate">{todoProgressText}</span>
@@ -1693,6 +1719,7 @@
       "
       role="button"
       tabindex="0"
+      aria-label="{bot.agent.name || bot.agent.type} - {bot.agent.status}"
       on:click|stopPropagation={() => handleBotClick(bot.agent.id)}
       on:keydown|stopPropagation={(e) => { if (e.key === 'Enter' || e.key === ' ') handleBotClick(bot.agent.id); }}
     >
@@ -1700,6 +1727,7 @@
       <div style="width: {BOT_SIZE}px; height: {BOT_SIZE}px;">
         <CuteBot
           status={bot.agent.status}
+          isTired={isBotTired(bot.agent)}
           role={getRole(bot.agent)}
           conductorIndex={effectiveConductorIndex}
           size={compact ? 'md' : 'lg'}
@@ -1715,11 +1743,10 @@
       <div
         class="absolute top-full left-1/2 mt-1 text-xs whitespace-nowrap text-center transition-all duration-500"
         class:text-cyan-300={bot.spawning}
-        class:text-gray-400={!bot.spawning}
         class:text-amber-300={bot.isRelocating}
         class:font-medium={bot.spawning || bot.isRelocating}
         class:scale-110={bot.spawning}
-        style="transform: translateX(-50%) scaleX({bot.direction === 'left' ? -1 : 1})"
+        style="transform: translateX(-50%) scaleX({bot.direction === 'left' ? -1 : 1}); {!bot.spawning && !bot.isRelocating ? 'color: var(--text-secondary)' : ''}"
       >
         {bot.agent.type === 'main'
           ? (currentConductorCount > 1 ? `conductor ${effectiveConductorIndex + 1}` : 'conductor')

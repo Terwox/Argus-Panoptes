@@ -45,7 +45,7 @@
   >
     <!-- Help Card -->
     <div
-      class="bg-[#1a1a1a] border-2 border-white/10 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl"
+      class="bg-[var(--bg-secondary)] border-2 border-[var(--border-default)] rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl"
       role="dialog"
       aria-labelledby="keyboard-help-title"
     >
@@ -53,7 +53,7 @@
       <div class="flex items-center gap-3 mb-6">
         <!-- Keyboard icon -->
         <svg
-          class="w-6 h-6 text-white/70"
+          class="w-6 h-6 text-[var(--text-secondary)]"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -66,7 +66,7 @@
           <line x1="18" y1="10" x2="18" y2="10" stroke-width="2" stroke-linecap="round" />
           <line x1="8" y1="14" x2="16" y2="14" stroke-width="2" stroke-linecap="round" />
         </svg>
-        <h2 id="keyboard-help-title" class="text-xl font-semibold text-white">
+        <h2 id="keyboard-help-title" class="text-xl font-semibold text-[var(--text-primary)]">
           Keyboard Shortcuts
         </h2>
       </div>
@@ -78,21 +78,21 @@
             <!-- Key badge -->
             <kbd
               class="inline-flex items-center justify-center min-w-[3rem] px-3 py-1.5
-                     text-sm font-mono font-medium text-white/90
-                     bg-white/10 border border-white/20 rounded-lg shadow-sm"
+                     text-sm font-mono font-medium text-[var(--text-primary)]
+                     bg-[var(--bg-muted)] border border-[var(--border-default)] rounded-lg shadow-sm"
             >
               {key}
             </kbd>
             <!-- Description -->
-            <span class="text-gray-300 text-sm flex-1">{description}</span>
+            <span class="text-[var(--text-secondary)] text-sm flex-1">{description}</span>
           </div>
         {/each}
       </div>
 
       <!-- Footer hint -->
-      <div class="mt-8 pt-4 border-t border-white/10 text-center">
-        <p class="text-xs text-gray-500">
-          Press <kbd class="px-2 py-0.5 bg-white/10 rounded text-gray-400">Esc</kbd> or click
+      <div class="mt-8 pt-4 border-t border-[var(--border-default)] text-center">
+        <p class="text-xs text-[var(--text-muted)]">
+          Press <kbd class="px-2 py-0.5 bg-[var(--bg-muted)] rounded text-[var(--text-secondary)]">Esc</kbd> or click
           outside to close
         </p>
       </div>

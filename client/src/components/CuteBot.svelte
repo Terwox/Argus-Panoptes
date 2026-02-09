@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { AgentStatus } from '../../../shared/types';
+  import { prefersReducedMotion } from '../stores/state';
 
   export let status: AgentStatus;
   export let isTired: boolean = false;
@@ -11,7 +12,7 @@
   export let conjureAnimation: 'classic' | 'teleport' | 'factory' | 'inflate' | 'pixel' | 'spring' | 'assembly' = 'classic';
   export let bobble: boolean = false; // Trigger bobble animation (squash/stretch)
 
-  // Idle animations for conductor
+  // Idle animations — any bot can play when idle
   type IdleAnimation =
     | 'sleeping'
     | 'reading'
@@ -28,27 +29,60 @@
     | 'bed'
     | 'doll'
     | 'imaginary-friend'
-    | 'encouraging';
+    | 'encouraging'
+    | 'bug-catching'
+    | 'measuring'
+    | 'magnifying'
+    | 'painting'
+    | 'juggling';
 
   let idleAnimation: IdleAnimation | null = null;
   let sleepingUseEmoji: boolean = false; // Random choice between Z's and 💤
 
-  // Select random idle animation when entering idle state
+  // Role-specific idle animation pools
   function selectRandomIdleAnimation(): IdleAnimation {
-    const animations: IdleAnimation[] = [
-      'sleeping', 'reading', 'stretching', 'coffee', 'stargazing',
-      'polishing', 'doodling', 'pocket-watch', 'humming', 'meditating',
-      'pet', 'telescope', 'bed', 'doll', 'imaginary-friend', 'encouraging'
+    // Universal animations any role can do
+    const universal: IdleAnimation[] = [
+      'sleeping', 'stretching', 'coffee', 'stargazing', 'humming',
+      'meditating', 'bed', 'pet', 'juggling'
     ];
-    return animations[Math.floor(Math.random() * animations.length)];
+
+    // Role-specific extras
+    const roleExtras: Record<string, IdleAnimation[]> = {
+      conductor: ['polishing', 'pocket-watch', 'encouraging', 'doll', 'imaginary-friend', 'reading'],
+      architect: ['doodling', 'reading', 'telescope', 'measuring'],
+      explorer: ['telescope', 'magnifying', 'reading'],
+      researcher: ['reading', 'doodling', 'telescope'],
+      writer: ['reading', 'doodling'],
+      designer: ['doodling', 'painting'],
+      tester: ['bug-catching', 'doll', 'reading'],
+      planner: ['reading', 'doodling', 'pocket-watch'],
+      critic: ['reading', 'pocket-watch'],
+      analyst: ['reading', 'doodling'],
+      scientist: ['telescope', 'reading', 'measuring'],
+      builder: ['doodling', 'measuring'],
+      security: ['telescope', 'reading'],
+      vision: ['telescope', 'magnifying'],
+      background: ['sleeping', 'coffee'],
+      worker: ['reading', 'doodling', 'doll'],
+    };
+
+    const extras = roleExtras[roleCategory] || roleExtras['worker'];
+    const pool = [...universal, ...extras];
+    return pool[Math.floor(Math.random() * pool.length)];
   }
 
-  // Watch for status changes to idle
+  // Watch for status changes to idle — all bots can play
   $: {
-    if (status === 'idle' && roleCategory === 'conductor' && !conjuring) {
+    if (status === 'idle' && !conjuring) {
       if (idleAnimation === null) {
-        idleAnimation = selectRandomIdleAnimation();
-        sleepingUseEmoji = Math.random() > 0.5; // 50/50 chance for Z's vs 💤
+        // Reduced motion: always use static sleeping pose
+        if ($prefersReducedMotion) {
+          idleAnimation = 'sleeping';
+        } else {
+          idleAnimation = selectRandomIdleAnimation();
+        }
+        sleepingUseEmoji = Math.random() > 0.5;
       }
     } else if (status !== 'idle') {
       idleAnimation = null;
@@ -179,7 +213,7 @@
 </script>
 
 <div class="inline-flex items-center justify-center {sizeClasses[size]} {animationClass} {bobble ? 'animate-bobble' : ''}">
-  <svg viewBox="0 0 100 100" class="w-full h-full">
+  <svg viewBox="0 0 100 100" class="w-full h-full" aria-hidden="true">
     <!-- Body -->
     <rect
       x="20" y="30" width="60" height="50" rx="10"
@@ -396,7 +430,7 @@
   </svg>
 
   <!-- Idle Animation Overlays -->
-  {#if idleAnimation && roleCategory === 'conductor'}
+  {#if idleAnimation}
     <div class="absolute inset-0 pointer-events-none">
       {#if idleAnimation === 'sleeping'}
         <!-- Floating sleep indicators - randomly Z's or 💤 emoji -->
@@ -580,6 +614,74 @@
           <!-- "Good job!" text -->
           <div class="idle-encouragement">Good job!</div>
         </svg>
+      {:else if idleAnimation === 'bug-catching'}
+        <!-- Tiny bug bouncing around for tester to chase -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g class="animate-bug-bounce">
+            <!-- Ladybug -->
+            <ellipse cx="68" cy="40" rx="4" ry="3" fill="#ef4444" />
+            <circle cx="66" cy="38" r="1.5" fill="#333" />
+            <!-- Spots -->
+            <circle cx="69" cy="39" r="0.8" fill="#333" />
+            <circle cx="67" cy="41" r="0.8" fill="#333" />
+            <!-- Tiny legs -->
+            <line x1="65" y1="40" x2="63" y2="42" stroke="#333" stroke-width="0.5" />
+            <line x1="68" y1="42" x2="68" y2="44" stroke="#333" stroke-width="0.5" />
+            <line x1="71" y1="40" x2="73" y2="42" stroke="#333" stroke-width="0.5" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'measuring'}
+        <!-- Architect measuring with ruler -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(55, 52)">
+            <!-- Ruler -->
+            <rect x="0" y="0" width="28" height="5" rx="0.5" fill="#fbbf24" stroke="#d97706" stroke-width="0.5" />
+            <!-- Tick marks -->
+            <line x1="5" y1="0" x2="5" y2="2" stroke="#92400e" stroke-width="0.5" />
+            <line x1="10" y1="0" x2="10" y2="3" stroke="#92400e" stroke-width="0.5" />
+            <line x1="15" y1="0" x2="15" y2="2" stroke="#92400e" stroke-width="0.5" />
+            <line x1="20" y1="0" x2="20" y2="3" stroke="#92400e" stroke-width="0.5" />
+            <line x1="25" y1="0" x2="25" y2="2" stroke="#92400e" stroke-width="0.5" />
+            <!-- Thinking bubble -->
+            <circle cx="14" cy="-6" r="1" fill="rgba(255,255,255,0.4)" />
+            <circle cx="16" cy="-9" r="1.5" fill="rgba(255,255,255,0.4)" />
+            <circle cx="19" cy="-13" r="2.5" fill="rgba(255,255,255,0.3)" class="animate-measure-think" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'magnifying'}
+        <!-- Explorer examining something on the ground -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(55, 55)" class="animate-magnify-sweep">
+            <!-- Magnifying glass -->
+            <circle cx="8" cy="6" r="7" fill="none" stroke="#a78bfa" stroke-width="2" />
+            <circle cx="8" cy="6" r="5" fill="rgba(167, 139, 250, 0.1)" />
+            <line x1="13" y1="11" x2="18" y2="18" stroke="#a78bfa" stroke-width="3" stroke-linecap="round" />
+            <!-- Sparkle found! -->
+            <circle cx="8" cy="6" r="1" fill="#fbbf24" class="animate-twinkle" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'painting'}
+        <!-- Designer painting on tiny easel -->
+        <svg viewBox="0 0 100 100" class="w-full h-full">
+          <g transform="translate(58, 45)">
+            <!-- Easel legs -->
+            <line x1="5" y1="0" x2="2" y2="30" stroke="#92400e" stroke-width="1.5" />
+            <line x1="15" y1="0" x2="18" y2="30" stroke="#92400e" stroke-width="1.5" />
+            <line x1="10" y1="5" x2="10" y2="30" stroke="#92400e" stroke-width="1" />
+            <!-- Canvas -->
+            <rect x="2" y="0" width="16" height="14" fill="#f5f5dc" stroke="#92400e" stroke-width="0.5" />
+            <!-- Paint dots appearing one by one -->
+            <circle cx="6" cy="5" r="1.5" fill="#ec4899" class="animate-paint-dot1" />
+            <circle cx="11" cy="4" r="1.5" fill="#3b82f6" class="animate-paint-dot2" />
+            <circle cx="14" cy="8" r="1.5" fill="#22c55e" class="animate-paint-dot3" />
+            <circle cx="8" cy="9" r="1.5" fill="#f59e0b" class="animate-paint-dot4" />
+          </g>
+        </svg>
+      {:else if idleAnimation === 'juggling'}
+        <!-- Juggling three small balls in an arc -->
+        <div class="idle-juggle-ball idle-juggle1">🔴</div>
+        <div class="idle-juggle-ball idle-juggle2">🔵</div>
+        <div class="idle-juggle-ball idle-juggle3">🟡</div>
       {/if}
     </div>
   {/if}
@@ -1169,4 +1271,69 @@
     white-space: nowrap;
     animation: encouragement-fade 3s ease-in-out infinite;
   }
+
+  /* Bug catching - ladybug bounces erratically */
+  @keyframes bug-bounce {
+    0% { transform: translate(0, 0); }
+    15% { transform: translate(8px, -12px); }
+    30% { transform: translate(-5px, -6px); }
+    45% { transform: translate(12px, -15px); }
+    60% { transform: translate(-8px, -3px); }
+    75% { transform: translate(5px, -10px); }
+    100% { transform: translate(0, 0); }
+  }
+
+  .animate-bug-bounce {
+    animation: bug-bounce 3.5s ease-in-out infinite;
+  }
+
+  /* Measuring - thinking bubble pulses */
+  @keyframes measure-think {
+    0%, 100% { opacity: 0.2; transform: scale(0.8); }
+    50% { opacity: 0.5; transform: scale(1.1); }
+  }
+
+  .animate-measure-think {
+    animation: measure-think 2.5s ease-in-out infinite;
+  }
+
+  /* Magnifying glass sweeps left-right */
+  @keyframes magnify-sweep {
+    0%, 100% { transform: translate(55px, 55px) translateX(0); }
+    50% { transform: translate(55px, 55px) translateX(8px); }
+  }
+
+  .animate-magnify-sweep {
+    animation: magnify-sweep 3s ease-in-out infinite;
+  }
+
+  /* Paint dots appear one by one */
+  @keyframes paint-appear {
+    0%, 20% { opacity: 0; transform: scale(0); }
+    40%, 100% { opacity: 1; transform: scale(1); }
+  }
+
+  .animate-paint-dot1 { animation: paint-appear 4s ease-out infinite; animation-delay: 0s; }
+  .animate-paint-dot2 { animation: paint-appear 4s ease-out infinite; animation-delay: 1s; }
+  .animate-paint-dot3 { animation: paint-appear 4s ease-out infinite; animation-delay: 2s; }
+  .animate-paint-dot4 { animation: paint-appear 4s ease-out infinite; animation-delay: 3s; }
+
+  /* Juggling balls arc pattern */
+  @keyframes juggle-arc {
+    0% { transform: translate(0, 0) scale(0.7); opacity: 0.3; }
+    25% { transform: translate(8px, -20px) scale(1); opacity: 1; }
+    50% { transform: translate(16px, 0) scale(0.7); opacity: 0.3; }
+    75% { transform: translate(8px, -20px) scale(1); opacity: 1; }
+    100% { transform: translate(0, 0) scale(0.7); opacity: 0.3; }
+  }
+
+  .idle-juggle-ball {
+    position: absolute;
+    font-size: 10px;
+    animation: juggle-arc 2s ease-in-out infinite;
+  }
+
+  .idle-juggle1 { left: 35%; top: 35%; animation-delay: 0s; }
+  .idle-juggle2 { left: 45%; top: 35%; animation-delay: 0.66s; }
+  .idle-juggle3 { left: 55%; top: 35%; animation-delay: 1.33s; }
 </style>

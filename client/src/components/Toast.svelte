@@ -59,14 +59,14 @@
             {toast.projectName}
           </div>
         {/if}
-        <p class="text-sm text-gray-200 leading-snug">
+        <p class="text-sm text-[var(--text-primary)] leading-snug">
           {toast.message}
         </p>
       </div>
 
       <!-- Dismiss button -->
       <button
-        class="flex-shrink-0 text-white/40 hover:text-white/80 transition-colors text-lg leading-none"
+        class="flex-shrink-0 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors text-lg leading-none"
         on:click|stopPropagation={() => toasts.dismissToast(toast.id)}
         aria-label="Dismiss"
       >

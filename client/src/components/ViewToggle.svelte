@@ -2,12 +2,12 @@
   import { viewMode } from '../stores/state';
 </script>
 
-<div class="flex items-center gap-1 bg-white/5 rounded-lg p-1">
+<div class="flex items-center gap-1 bg-[var(--bg-muted)] rounded-lg p-1">
   <button
     class="px-3 py-1 text-sm rounded-md transition-colors {$viewMode ===
     'simple'
-      ? 'bg-white/10 text-white'
-      : 'text-gray-400 hover:text-white'}"
+      ? 'bg-[var(--bg-muted-hover)] text-[var(--text-primary)]'
+      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
     on:click={() => viewMode.set('simple')}
   >
     Simple
@@ -15,8 +15,8 @@
   <button
     class="px-3 py-1 text-sm rounded-md transition-colors {$viewMode ===
     'detailed'
-      ? 'bg-white/10 text-white'
-      : 'text-gray-400 hover:text-white'}"
+      ? 'bg-[var(--bg-muted-hover)] text-[var(--text-primary)]'
+      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}"
     on:click={() => viewMode.set('detailed')}
   >
     Detailed

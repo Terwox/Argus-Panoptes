@@ -2,16 +2,78 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Dark theme (default) */
 :root {
+  /* Surfaces */
   --bg-primary: #0f0f0f;
   --bg-secondary: #1a1a1a;
   --bg-card: #242424;
+  --bg-card-hover: rgba(255, 255, 255, 0.04);
+  --bg-overlay: rgba(0, 0, 0, 0.3);
+  --bg-muted: rgba(255, 255, 255, 0.05);
+  --bg-muted-hover: rgba(255, 255, 255, 0.10);
+
+  /* Text */
   --text-primary: #ffffff;
   --text-secondary: #a0a0a0;
+  --text-muted: #6b7280;
+
+  /* Borders */
+  --border-default: rgba(255, 255, 255, 0.1);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-hover: rgba(255, 255, 255, 0.3);
+
+  /* Accents (same in both themes — status colors) */
   --accent-blocked: #f59e0b;
   --accent-working: #3b82f6;
   --accent-idle: #4b5563;
   --accent-success: #22c55e;
+
+  /* Speech bubbles */
+  --bubble-fill: rgba(255, 255, 255, 0.1);
+  --bubble-stroke: rgba(255, 255, 255, 0.2);
+  --bubble-text: rgba(255, 255, 255, 0.9);
+
+  /* Settings/dialog panels */
+  --panel-bg: #ffffff;
+  --panel-text: #1f2937;
+  --panel-border: #e5e7eb;
+  --panel-description: #6b7280;
+
+  /* Tooltip */
+  --tooltip-bg: rgba(0, 0, 0, 0.9);
+  --tooltip-text: #d1d5db;
+}
+
+/* Light theme */
+:root[data-theme="light"] {
+  --bg-primary: #f5f5f5;
+  --bg-secondary: #e8e8e8;
+  --bg-card: #ffffff;
+  --bg-card-hover: rgba(0, 0, 0, 0.04);
+  --bg-overlay: rgba(0, 0, 0, 0.15);
+  --bg-muted: rgba(0, 0, 0, 0.05);
+  --bg-muted-hover: rgba(0, 0, 0, 0.10);
+
+  --text-primary: #1f2937;
+  --text-secondary: #6b7280;
+  --text-muted: #9ca3af;
+
+  --border-default: rgba(0, 0, 0, 0.1);
+  --border-subtle: rgba(0, 0, 0, 0.05);
+  --border-hover: rgba(0, 0, 0, 0.2);
+
+  --bubble-fill: rgba(0, 0, 0, 0.06);
+  --bubble-stroke: rgba(0, 0, 0, 0.12);
+  --bubble-text: rgba(0, 0, 0, 0.85);
+
+  --panel-bg: #ffffff;
+  --panel-text: #1f2937;
+  --panel-border: #e5e7eb;
+  --panel-description: #6b7280;
+
+  --tooltip-bg: rgba(0, 0, 0, 0.85);
+  --tooltip-text: #d1d5db;
 }
 
 * {
@@ -30,4 +92,25 @@ body {
 
 #app {
   min-height: 100vh;
+}
+
+/* Accessibility: Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Accessibility: Keyboard focus rings */
+*:focus-visible {
+  outline: 2px solid var(--accent-working);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+*:focus:not(:focus-visible) {
+  outline: none;
 }

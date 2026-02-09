@@ -94,7 +94,7 @@
         ? 'border-emerald-500/30'
         : isWorking
           ? 'border-working/30'
-          : 'border-white/5';
+          : 'border-[var(--border-subtle)]';
 
   $: bgColor = isBlocked
     ? 'bg-blocked/5'
@@ -104,7 +104,7 @@
         ? 'bg-emerald-500/5'
         : isWorking
           ? 'bg-working/5'
-          : 'bg-white/[0.02]';
+          : 'bg-[var(--bg-muted)]';
 
   $: opacityClass = dimmed
     ? (isBlocked ? 'opacity-50' : 'opacity-30')
@@ -147,7 +147,7 @@
 
 <div
   class="rounded-xl border-2 {borderColor} {bgColor} {opacityClass} p-4 transition-all duration-200 flex flex-col
-         hover:border-white/30 hover:bg-white/[0.04] hover:shadow-lg hover:shadow-white/5
+         hover:border-[var(--border-hover)] hover:bg-[var(--bg-card-hover)] hover:shadow-lg
          {selected ? 'ring-2 ring-blue-500' : ''}
          {(isBlocked || isFocused) && $layoutMode !== 'compact' ? 'md:col-span-2 lg:col-span-2' : ''}
          {isFocused && !isBlocked ? 'ring-2 ring-blue-400/50 shadow-xl shadow-blue-500/10' : ''}
@@ -155,6 +155,7 @@
   on:click={handleCardClick}
   role="button"
   tabindex="0"
+  aria-label="{project.name} - {project.status}"
   on:keydown={(e) => e.key === 'Enter' && handleCardClick()}
 >
   <!-- Header -->
@@ -189,14 +190,14 @@
           <!-- DESIGN: NO VISIBLE TIMERS - no anxiety -->
           <span class="text-working text-sm font-normal">Active</span>
         {:else}
-          <span class="text-gray-500 text-sm font-normal">Idle</span>
+          <span class="text-[var(--text-muted)] text-sm font-normal">Idle</span>
         {/if}
       </h3>
-      <p class="text-xs text-gray-500 truncate max-w-[300px]" title={project.path}>
+      <p class="text-xs text-[var(--text-muted)] truncate max-w-[300px]" title={project.path}>
         {project.path}
       </p>
       {#if project.lastUserMessage && !isBlocked}
-        <p class="text-xs text-gray-600 mt-1 truncate max-w-[300px]" title={project.lastUserMessage}>
+        <p class="text-xs text-[var(--text-muted)] mt-1 truncate max-w-[300px]" title={project.lastUserMessage}>
           {project.lastUserMessage.slice(0, 60)}{project.lastUserMessage.length > 60 ? '...' : ''}
         </p>
       {/if}
@@ -209,7 +210,7 @@
           class="p-1.5 text-sm rounded-lg transition-colors
                  {isFocused
                    ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
-                   : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-300'}"
+                   : 'bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted-hover)]'}"
           on:click={toggleFocus}
           title={isFocused ? 'Exit Focus Mode' : 'Focus on this project'}
         >
@@ -232,7 +233,7 @@
           class="px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1.5
                  {isBlocked
                    ? 'bg-blocked text-black font-medium hover:bg-blocked/90'
-                   : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-300'}"
+                   : 'bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted-hover)]'}"
           on:click={handleBounce}
         >
           <span>→</span>
@@ -266,21 +267,21 @@
 
     <!-- Track 4: Visual polish - clickable container with hover effect -->
     <div
-      class="mt-2 px-2 py-1.5 bg-white/[0.03] rounded-lg border border-white/5 hover:bg-white/[0.05] transition-colors duration-200"
+      class="mt-2 px-2 py-1.5 bg-[var(--bg-muted)] rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--bg-muted-hover)] transition-colors duration-200"
       on:click={(e) => { e.stopPropagation(); todoExpanded = !todoExpanded; }}
       role="button"
       tabindex="0"
       on:keydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); todoExpanded = !todoExpanded; }}}
     >
       <!-- Track 4: Progress bar -->
-      <div class="h-1 bg-white/10 rounded-full overflow-hidden mb-1.5">
+      <div class="h-1 bg-[var(--bg-muted-hover)] rounded-full overflow-hidden mb-1.5">
         <div
           class="h-full bg-blue-500/50 transition-all duration-500 ease-out"
           style="width: {completedPercent}%"
         ></div>
       </div>
 
-      <div class="flex items-center gap-2 {textSize} text-gray-400">
+      <div class="flex items-center gap-2 {textSize} text-[var(--text-secondary)]">
         <!-- Track 2: Chevron indicator -->
         <span class="flex-shrink-0 transition-transform duration-200 ease-out" style="transform: rotate({todoExpanded ? 90 : 0}deg)">
           ▶
@@ -307,7 +308,7 @@
       {#if todoExpanded}
         <div class="mt-2 space-y-1 {textSize} max-h-[200px] overflow-y-auto">
           {#each conductor.todos.items as item}
-            <div class="flex items-center gap-2 text-gray-500">
+            <div class="flex items-center gap-2 text-[var(--text-muted)]">
               <span class={item.status === 'completed' ? 'text-emerald-400' : item.status === 'in_progress' ? 'text-blue-400' : 'text-gray-500'}>
                 {item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '●' : '○'}
               </span>

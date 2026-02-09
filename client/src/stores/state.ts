@@ -132,6 +132,47 @@ overloadMode.subscribe($enabled => {
   }
 });
 
+// Theme mode: 'system' | 'dark' | 'light' — defaults to system preference
+function getThemeFromStorage(): 'system' | 'dark' | 'light' {
+  if (typeof window === 'undefined') return 'system';
+  const stored = localStorage.getItem('argus-theme');
+  if (stored === 'dark' || stored === 'light') return stored;
+  return 'system';
+}
+
+export function applyTheme(mode: 'system' | 'dark' | 'light') {
+  if (typeof window === 'undefined') return;
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const effective = mode === 'system' ? (prefersDark ? 'dark' : 'light') : mode;
+  document.documentElement.setAttribute('data-theme', effective);
+}
+
+export const themeMode = writable<'system' | 'dark' | 'light'>(getThemeFromStorage());
+
+themeMode.subscribe($theme => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('argus-theme', $theme);
+    applyTheme($theme);
+  }
+});
+
+// Listen for OS color scheme changes (re-evaluate when in 'system' mode)
+if (typeof window !== 'undefined') {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    const currentMode = get(themeMode);
+    if (currentMode === 'system') applyTheme('system');
+  });
+}
+
+// Reduced motion preference (reactive to OS setting)
+export const prefersReducedMotion = writable<boolean>(false);
+
+if (typeof window !== 'undefined') {
+  const mql = window.matchMedia('(prefers-reduced-motion: reduce)');
+  prefersReducedMotion.set(mql.matches);
+  mql.addEventListener('change', (e) => prefersReducedMotion.set(e.matches));
+}
+
 // Track when projects were first seen (for stable ordering)
 const projectFirstSeen = new Map<string, number>();
 
