@@ -164,7 +164,8 @@ export function onSessionStart(
   projectPath: string,
   projectName: string,
   task?: string,
-  modes?: SessionModes
+  modes?: SessionModes,
+  source?: 'claude-code' | 'openclaw'
 ): Project {
   const project = getOrCreateProject(projectPath, projectName);
   const agents = project.agents as Map<string, Agent>;
@@ -181,6 +182,7 @@ export function onSessionStart(
     status: 'working',
     task,
     modes,
+    source,
     spawnedAt: Date.now(),
     lastActivityAt: Date.now(),
   };
