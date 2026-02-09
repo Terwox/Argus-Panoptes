@@ -165,7 +165,8 @@ export function onSessionStart(
   projectName: string,
   task?: string,
   modes?: SessionModes,
-  source?: 'claude-code' | 'openclaw'
+  source?: 'claude-code' | 'openclaw',
+  agentName?: string
 ): Project {
   const project = getOrCreateProject(projectPath, projectName);
   const agents = project.agents as Map<string, Agent>;
@@ -177,7 +178,7 @@ export function onSessionStart(
   // Create or update main agent
   const mainAgent: Agent = {
     id: sessionId,
-    name: 'main',
+    name: agentName || 'main',
     type: 'main',
     status: 'working',
     task,

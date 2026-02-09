@@ -234,7 +234,7 @@ function findActiveOpenClawTranscripts(): string[] {
  * Parse OpenClaw transcript to extract session info
  * OpenClaw format: first line has type:"session" with cwd field
  */
-function parseOpenClawTranscript(transcriptPath: string): { sessionId: string; cwd: string } | null {
+function parseOpenClawTranscript(transcriptPath: string): { sessionId: string; cwd: string; agentName: string } | null {
   try {
     const content = readFileSync(transcriptPath, 'utf8');
     const lines = content.trim().split('\n');
@@ -242,12 +242,19 @@ function parseOpenClawTranscript(transcriptPath: string): { sessionId: string; c
     // Session ID is the filename without extension
     const sessionId = basename(transcriptPath, '.jsonl');
 
+    // Extract agent name from path: ~/.openclaw/agents/{agentName}/sessions/{sessionId}.jsonl
+    const pathParts = transcriptPath.split(/[/\\]/);
+    const agentsIndex = pathParts.findIndex(p => p === 'agents');
+    const agentName = agentsIndex >= 0 && agentsIndex < pathParts.length - 2
+      ? pathParts[agentsIndex + 1]
+      : 'openclaw';
+
     // Look for cwd in the first few lines (session start entry)
     for (const line of lines.slice(0, 10)) {
       try {
         const entry = normalizeOpenClawEntry(JSON.parse(line));
         if (entry?.cwd) {
-          return { sessionId, cwd: entry.cwd };
+          return { sessionId, cwd: entry.cwd, agentName };
         }
       } catch {
         // Skip malformed lines
@@ -1176,10 +1183,10 @@ export function discoverExistingSessions(): number {
       if (info) {
         const projectName = projectNameFromPath(info.cwd);
 
-        // Register this OpenClaw session
-        console.log(`[Argus] Discovered OpenClaw session: ${projectName} (${info.sessionId.slice(0, 8)}...)`);
+        // Register this OpenClaw session with agent name
+        console.log(`[Argus] Discovered OpenClaw session: ${projectName} (${info.agentName}/${info.sessionId.slice(0, 8)}...)`);
 
-        const project = state.onSessionStart(info.sessionId, info.cwd, projectName, undefined, undefined, 'openclaw');
+        const project = state.onSessionStart(info.sessionId, info.cwd, projectName, undefined, undefined, 'openclaw', info.agentName);
 
         // Set transcript path on the agent for polling
         const agents = project.agents as Map<string, { transcriptPath?: string }>;
