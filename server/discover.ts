@@ -231,6 +231,31 @@ function findActiveOpenClawTranscripts(): string[] {
 }
 
 /**
+ * Extract agent name from OpenClaw IDENTITY.md file
+ * Format: **Name:** 🐇 (the emoji IS the name — never say "the rabbit," always use 🐇)
+ */
+function extractOpenClawAgentName(workspacePath: string): string | null {
+  try {
+    const identityPath = join(workspacePath, 'IDENTITY.md');
+    if (!existsSync(identityPath)) return null;
+
+    const content = readFileSync(identityPath, 'utf8');
+    // Match: **Name:** followed by any text (capturing the name)
+    const match = content.match(/\*\*Name:\*\*\s*(.+?)(?:\n|$)/);
+    if (match && match[1]) {
+      // Extract just the name part (before any parenthetical explanation)
+      const fullName = match[1].trim();
+      // Remove trailing explanation like "(the emoji IS the name...)"
+      const cleanName = fullName.split('(')[0].trim();
+      return cleanName || null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Parse OpenClaw transcript to extract session info
  * OpenClaw format: first line has type:"session" with cwd field
  */
@@ -242,10 +267,10 @@ function parseOpenClawTranscript(transcriptPath: string): { sessionId: string; c
     // Session ID is the filename without extension
     const sessionId = basename(transcriptPath, '.jsonl');
 
-    // Extract agent name from path: ~/.openclaw/agents/{agentName}/sessions/{sessionId}.jsonl
+    // Extract fallback agent name from path: ~/.openclaw/agents/{agentId}/sessions/{sessionId}.jsonl
     const pathParts = transcriptPath.split(/[/\\]/);
     const agentsIndex = pathParts.findIndex(p => p === 'agents');
-    const agentName = agentsIndex >= 0 && agentsIndex < pathParts.length - 2
+    const agentIdFallback = agentsIndex >= 0 && agentsIndex < pathParts.length - 2
       ? pathParts[agentsIndex + 1]
       : 'openclaw';
 
@@ -254,6 +279,8 @@ function parseOpenClawTranscript(transcriptPath: string): { sessionId: string; c
       try {
         const entry = normalizeOpenClawEntry(JSON.parse(line));
         if (entry?.cwd) {
+          // Try to extract agent name from IDENTITY.md in workspace
+          const agentName = extractOpenClawAgentName(entry.cwd) || agentIdFallback;
           return { sessionId, cwd: entry.cwd, agentName };
         }
       } catch {
