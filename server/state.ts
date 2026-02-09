@@ -106,8 +106,16 @@ function updateProjectStatus(project: Project): void {
 
     // Transition working agents to idle if they've been inactive
     // BUT don't transition server_running agents - they stay running
+    // AND don't transition plan-mode agents - they're actively exploring
+    // AND don't transition conductors with active subagents - they're waiting for results
     if (agent.status === 'working' && isStale) {
-      agent.status = 'idle';
+      const inPlanMode = agent.modes?.planning === true;
+      const hasActiveSubagents = agent.type === 'main' && [...agents.values()].some(
+        a => a.parentId === agent.id && a.status === 'working'
+      );
+      if (!inPlanMode && !hasActiveSubagents) {
+        agent.status = 'idle';
+      }
     }
 
     // Check for rate limit reset (auto-unblock when time passes)
@@ -120,8 +128,8 @@ function updateProjectStatus(project: Project): void {
     if (agent.status === 'blocked') hasBlocked = true;
     if (agent.status === 'rate_limited') hasRateLimited = true;
     if (agent.status === 'server_running') hasServerRunning = true;
-    // Only count as "working" if we've heard from them recently
-    if (agent.status === 'working' && !isStale) hasWorking = true;
+    // Count as "working" if heard from recently, OR if kept alive (plan mode / active subagents)
+    if (agent.status === 'working') hasWorking = true;
   }
 
   // Priority: blocked > rate_limited > working > server_running > idle
@@ -510,6 +518,41 @@ export function updateSessionTask(
     agent.task = task;
     agent.lastActivityAt = Date.now();
   }
+}
+
+// Update modes for an agent (plan mode, ralph, ultrawork, etc.)
+export function updateAgentModes(
+  sessionId: string,
+  projectPath: string,
+  modes: Partial<SessionModes>
+): boolean {
+  const project = getProject(projectPath);
+  if (!project) return false;
+
+  const agents = project.agents as Map<string, Agent>;
+  const agent = agents.get(sessionId);
+  if (!agent) return false;
+
+  const oldModes = JSON.stringify(agent.modes || {});
+  // Explicitly set each mode key (including falsy values to clear modes)
+  const updated = { ...agent.modes };
+  for (const [key, value] of Object.entries(modes)) {
+    if (value) {
+      (updated as Record<string, unknown>)[key] = value;
+    } else {
+      delete (updated as Record<string, unknown>)[key];
+    }
+  }
+  agent.modes = Object.keys(updated).length > 0 ? updated as SessionModes : undefined;
+  const newModes = JSON.stringify(agent.modes || {});
+
+  if (oldModes !== newModes) {
+    // Modes changed - keep agent alive
+    agent.lastActivityAt = Date.now();
+    updateProjectStatus(project);
+    return true;
+  }
+  return false;
 }
 
 // Update current activity for a session (what they're doing right now)

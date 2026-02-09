@@ -465,6 +465,47 @@ function checkServerRunning(transcriptPath: string): ServerRunningInfo | null {
   return null;
 }
 
+/**
+ * Check if a transcript indicates the session is currently in plan mode
+ * Scans for EnterPlanMode / ExitPlanMode tool calls to determine current state
+ */
+function checkPlanMode(transcriptPath: string): boolean {
+  try {
+    const content = readFileSync(transcriptPath, 'utf8');
+    const lines = content.trim().split('\n');
+
+    // Scan from end - find the most recent EnterPlanMode or ExitPlanMode
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(lines[i]) as TranscriptEntry;
+
+        if (entry.type === 'assistant' && entry.message?.content) {
+          const msgContent = entry.message.content;
+          if (!Array.isArray(msgContent)) continue;
+
+          for (const block of msgContent) {
+            if (block.type === 'tool_use') {
+              if (block.name === 'ExitPlanMode') {
+                // Plan was presented for review - no longer in active plan mode
+                return false;
+              }
+              if (block.name === 'EnterPlanMode') {
+                // Found EnterPlanMode before any ExitPlanMode - in plan mode
+                return true;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // Skip malformed lines
+      }
+    }
+  } catch (e) {
+    // Ignore read errors
+  }
+  return false;
+}
+
 interface ActivityResult {
   activity: string;
   lineNumber: number;
@@ -804,6 +845,11 @@ export function checkPendingQuestions(): number {
               }
             }
           }
+
+          // Detect plan mode from transcript
+          const inPlanMode = checkPlanMode(transcriptPath);
+          const modesChanged = state.updateAgentModes(sessionId, cwd, { planning: inPlanMode });
+          if (modesChanged) updatedCount++;
 
           // Extract current activity (what they're doing now)
           const activityResult = extractCurrentActivity(transcriptPath);
