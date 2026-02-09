@@ -19,6 +19,7 @@ export interface ArgusEvent {
   sessionId: string;
   projectPath: string;
   projectName: string; // derived from path
+  source?: 'claude-code' | 'openclaw';  // Which tool sent this event
   agentId?: string;
   agentName?: string;
   agentType?: 'main' | 'subagent' | 'background';
@@ -50,6 +51,7 @@ export interface Agent {
   type: 'main' | 'subagent' | 'background';
   parentId?: string;
   status: AgentStatus;
+  source?: 'claude-code' | 'openclaw';  // Which tool generated this agent
   task?: string;  // Initial task/prompt
   currentActivity?: string;  // What they're doing right now (from recent tool calls/todos)
   question?: string;

@@ -9,9 +9,12 @@ import { readdirSync, statSync, readFileSync, existsSync } from 'fs';
 import { join, basename } from 'path';
 import { homedir } from 'os';
 import * as state from './state.js';
+import { normalizeOpenClawEntry } from './openclaw-parser.js';
 
 const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects');
+const OPENCLAW_AGENTS_DIR = join(homedir(), '.openclaw', 'agents');
 const RECENT_THRESHOLD = 5 * 60 * 1000; // 5 minutes - consider active if modified recently
+const OPENCLAW_THRESHOLD = 30 * 60 * 1000; // 30 minutes - OpenClaw sessions are conversational with longer pauses
 
 interface ToolInput {
   questions?: Array<{ question?: string }>;
@@ -122,6 +125,138 @@ function parseTranscript(transcriptPath: string): { sessionId: string; cwd: stri
     // (Directory name encoding is ambiguous for paths with hyphens)
     return null;
   } catch (e) {
+    return null;
+  }
+}
+
+// ============================================================
+// OPENCLAW DISCOVERY
+// ============================================================
+
+/**
+ * Detect if a transcript is OpenClaw format (vs Claude Code)
+ * OpenClaw: first line has type:"session"
+ * Claude Code: first line has type:"user" or type:"assistant"
+ */
+function isOpenClawTranscript(transcriptPath: string): boolean {
+  try {
+    const content = readFileSync(transcriptPath, 'utf8');
+    const firstLine = content.trim().split('\n')[0];
+    if (!firstLine) return false;
+
+    const entry = JSON.parse(firstLine);
+    return entry.type === 'session'; // OpenClaw marker
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Parse a transcript entry, normalizing OpenClaw format if needed
+ */
+function parseTranscriptEntry(line: string, isOpenClaw: boolean): TranscriptEntry | null {
+  try {
+    const raw = JSON.parse(line);
+    if (isOpenClaw) {
+      const normalized = normalizeOpenClawEntry(raw);
+      return normalized as TranscriptEntry | null;
+    }
+    return raw as TranscriptEntry;
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================
+// OPENCLAW DISCOVERY
+// ============================================================
+
+/**
+ * Find active OpenClaw transcripts
+ * Directory structure: ~/.openclaw/agents/{agentId}/sessions/{sessionId}.jsonl
+ */
+function findActiveOpenClawTranscripts(): string[] {
+  if (!existsSync(OPENCLAW_AGENTS_DIR)) return [];
+
+  const now = Date.now();
+  const transcripts: string[] = [];
+
+  try {
+    const agentDirs = readdirSync(OPENCLAW_AGENTS_DIR);
+
+    for (const agentDir of agentDirs) {
+      const agentPath = join(OPENCLAW_AGENTS_DIR, agentDir);
+      const sessionsDir = join(agentPath, 'sessions');
+
+      if (!existsSync(sessionsDir)) continue;
+
+      try {
+        const files = readdirSync(sessionsDir);
+
+        for (const file of files) {
+          if (!file.endsWith('.jsonl')) continue;
+          if (file.includes('.deleted.')) continue; // Skip archived
+
+          const filePath = join(sessionsDir, file);
+
+          try {
+            const stat = statSync(filePath);
+            const age = now - stat.mtimeMs;
+
+            if (age <= OPENCLAW_THRESHOLD) {
+              transcripts.push(filePath);
+            }
+          } catch {
+            // Skip inaccessible files
+          }
+        }
+      } catch {
+        // Skip inaccessible session dirs
+      }
+    }
+  } catch {
+    // Skip if agents dir is inaccessible
+  }
+
+  // Sort by modification time (newest first)
+  transcripts.sort((a, b) => {
+    try {
+      return statSync(b).mtimeMs - statSync(a).mtimeMs;
+    } catch {
+      return 0;
+    }
+  });
+
+  return transcripts;
+}
+
+/**
+ * Parse OpenClaw transcript to extract session info
+ * OpenClaw format: first line has type:"session" with cwd field
+ */
+function parseOpenClawTranscript(transcriptPath: string): { sessionId: string; cwd: string } | null {
+  try {
+    const content = readFileSync(transcriptPath, 'utf8');
+    const lines = content.trim().split('\n');
+
+    // Session ID is the filename without extension
+    const sessionId = basename(transcriptPath, '.jsonl');
+
+    // Look for cwd in the first few lines (session start entry)
+    for (const line of lines.slice(0, 10)) {
+      try {
+        const entry = normalizeOpenClawEntry(JSON.parse(line));
+        if (entry?.cwd) {
+          return { sessionId, cwd: entry.cwd };
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+
+    // No cwd found
+    return null;
+  } catch {
     return null;
   }
 }
@@ -521,13 +656,17 @@ function extractCurrentActivity(transcriptPath: string): ActivityResult | null {
     const content = readFileSync(transcriptPath, 'utf8');
     const lines = content.trim().split('\n');
 
+    // Detect OpenClaw format (first line has type:"session")
+    const isOpenClaw = isOpenClawTranscript(transcriptPath);
+
     let lastAssistantText: string | null = null;
     let lastAssistantLine: number | null = null;
 
     // Read from end to find recent assistant messages
     for (let i = lines.length - 1; i >= Math.max(0, lines.length - 30); i--) {
       try {
-        const entry = JSON.parse(lines[i]) as TranscriptEntry;
+        const entry = parseTranscriptEntry(lines[i], isOpenClaw);
+        if (!entry) continue;
 
         if (entry.type === 'assistant' && entry.message?.content) {
           const msgContent = entry.message.content;
@@ -664,10 +803,20 @@ function extractTodos(transcriptPath: string): TodosResult | null {
     const content = readFileSync(transcriptPath, 'utf8');
     const lines = content.trim().split('\n');
 
+    // Detect if this is an OpenClaw transcript
+    const isOpenClaw = isOpenClawTranscript(transcriptPath);
+
     // Read from end to find the most recent TodoWrite call
     for (let i = lines.length - 1; i >= 0; i--) {
       try {
-        const entry = JSON.parse(lines[i]) as TranscriptEntry;
+        const rawEntry = JSON.parse(lines[i]);
+
+        // Normalize entry based on source format
+        const entry = isOpenClaw
+          ? parseTranscriptEntry(rawEntry, 'openclaw')
+          : (rawEntry as TranscriptEntry);
+
+        if (!entry) continue;
 
         if (entry.type === 'assistant' && entry.message?.content) {
           const msgContent = entry.message.content;
@@ -1015,6 +1164,35 @@ export function discoverExistingSessions(): number {
     }
   } catch (e) {
     console.error('[Argus] Error discovering sessions:', e);
+  }
+
+  // Discover OpenClaw sessions
+  try {
+    const openclawTranscripts = findActiveOpenClawTranscripts();
+
+    for (const transcriptPath of openclawTranscripts) {
+      const info = parseOpenClawTranscript(transcriptPath);
+
+      if (info) {
+        const projectName = projectNameFromPath(info.cwd);
+
+        // Register this OpenClaw session
+        console.log(`[Argus] Discovered OpenClaw session: ${projectName} (${info.sessionId.slice(0, 8)}...)`);
+
+        const project = state.onSessionStart(info.sessionId, info.cwd, projectName, undefined, undefined, 'openclaw');
+
+        // Set transcript path on the agent for polling
+        const agents = project.agents as Map<string, { transcriptPath?: string }>;
+        const agent = agents.get(info.sessionId);
+        if (agent) {
+          agent.transcriptPath = transcriptPath;
+        }
+
+        discoveredCount++;
+      }
+    }
+  } catch (e) {
+    console.error('[Argus] Error discovering OpenClaw sessions:', e);
   }
 
   return discoveredCount;
