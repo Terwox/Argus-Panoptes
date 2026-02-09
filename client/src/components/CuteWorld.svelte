@@ -144,9 +144,21 @@
     relocateTargetY: number; // Target Y when relocating
     bobble: boolean; // Bobble animation trigger
     forceShowBubble: boolean; // Temporarily force bubble visible when clicked
+    previousBubbleText: string; // Track previous text for floating-away animation
+  }
+
+  interface FloatingThought {
+    id: number;
+    text: string;
+    x: number; // Bubble left position when thought was replaced
+    y: number; // Bubble top position when thought was replaced
+    createdAt: number;
+    width: number; // Bubble width for text sizing
   }
 
   let bots: BotState[] = [];
+  let floatingThoughts: FloatingThought[] = [];
+  let floatingThoughtIdCounter = 0;
   let containerWidth = 300;
   let containerHeight = height;
   let animationFrame: number;
@@ -392,11 +404,18 @@
           relocateTargetY: 0,
           bobble: false,
           forceShowBubble: false,
+          previousBubbleText: '',
         }];
       } else {
         // Update existing bot's agent data and bubble text
         bots = bots.map(b => {
           if (b.agent.id === agent.id) {
+            const newBubbleText = getTaskText(agent);
+            const oldText = b.bubbleText;
+            // Spawn floating thought if text meaningfully changed
+            if (oldText && newBubbleText !== oldText && oldText !== 'Working...' && oldText !== 'Paused') {
+              spawnFloatingThought(b, oldText);
+            }
             return {
               ...b,
               agent,
@@ -404,7 +423,8 @@
               vx: b.vx ?? 0,
               vy: b.vy ?? 0,
               wanderTimer: b.wanderTimer ?? 1000,
-              bubbleText: getTaskText(agent),
+              bubbleText: newBubbleText,
+              previousBubbleText: oldText,
               showBubble: true, // Always visible
             };
           }
@@ -546,6 +566,48 @@
   function truncateForDisplay(text: string, limit: number): string {
     if (text.length <= limit) return text;
     return text.slice(0, limit) + '...';
+  }
+
+  // Spawn a floating thought that drifts upward and fades when bubble text changes
+  const MAX_FLOATING_THOUGHTS = 4;
+  const FLOATING_THOUGHT_DURATION = 2500; // ms
+
+  function spawnFloatingThought(bot: BotState, oldText: string): void {
+    // Get current bubble position for this bot
+    const computed = getBubblePosition(bot.agent.id);
+    if (!computed) return;
+
+    const bubbleWidth = computed.width;
+    const botCenterX = bot.x + BOT_SIZE / 2;
+    const idealLeft = botCenterX - bubbleWidth / 2;
+    const bubbleLeft = Math.max(5, Math.min(containerWidth - bubbleWidth - 5, idealLeft));
+    const bubbleTop = bot.y - 30; // Approximate bubble top position
+
+    // Truncate to keep it glanceable
+    const truncated = oldText.length > 50 ? oldText.slice(0, 47) + '...' : oldText;
+
+    floatingThoughts = [
+      ...floatingThoughts,
+      {
+        id: floatingThoughtIdCounter++,
+        text: truncated,
+        x: bubbleLeft,
+        y: bubbleTop,
+        createdAt: Date.now(),
+        width: Math.min(bubbleWidth, 200),
+      }
+    ];
+
+    // Cap max floating thoughts (remove oldest)
+    if (floatingThoughts.length > MAX_FLOATING_THOUGHTS) {
+      floatingThoughts = floatingThoughts.slice(-MAX_FLOATING_THOUGHTS);
+    }
+
+    // Auto-remove after animation completes
+    const thoughtId = floatingThoughtIdCounter - 1;
+    setTimeout(() => {
+      floatingThoughts = floatingThoughts.filter(t => t.id !== thoughtId);
+    }, FLOATING_THOUGHT_DURATION);
   }
 
   // Calculate bubble vertical offset to prevent overlapping bubbles
@@ -1214,7 +1276,7 @@
 <!-- Use clip-path instead of overflow-hidden to allow name tags to extend below bots -->
 <div
   class="relative rounded-lg bg-gradient-to-b from-gray-900/50 to-gray-900/20 {fillHeight ? 'h-full' : ''}"
-  style="{fillHeight ? '' : `height: ${height}px`} clip-path: inset(0 0 -30px 0);"
+  style="{fillHeight ? '' : `height: ${height}px`} clip-path: inset(-50px 0 -30px 0);"
   bind:clientWidth={containerWidth}
   bind:clientHeight={containerHeight}
 >
@@ -1636,6 +1698,23 @@
     {/if}
   {/each}
 
+  <!-- Floating old thoughts - drift upward and fade when bubble text changes -->
+  {#each floatingThoughts as thought (thought.id)}
+    <div
+      class="absolute pointer-events-none animate-thought-float"
+      style="
+        left: {thought.x}px;
+        top: {thought.y}px;
+        z-index: 900;
+        max-width: {thought.width}px;
+      "
+    >
+      <div class="text-xs text-white/50 whitespace-nowrap overflow-hidden text-ellipsis">
+        {thought.text}
+      </div>
+    </div>
+  {/each}
+
   <!-- Queue indicator when multiple agents are blocked -->
   {#if decisionMode && blockedQueueCount > 1}
     {@const queueText = `+${blockedQueueCount - 1} more waiting`}
@@ -1875,5 +1954,21 @@
 
   .animate-emoji-float {
     animation: emoji-float 0.6s ease-out forwards;
+  }
+
+  /* Floating old thoughts - gentle upward drift and fade */
+  @keyframes thought-float-away {
+    0% {
+      opacity: 0.6;
+      transform: translateY(0);
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-40px);
+    }
+  }
+
+  .animate-thought-float {
+    animation: thought-float-away 2.5s ease-out forwards;
   }
 </style>
