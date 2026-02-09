@@ -51,6 +51,9 @@ export const fakeProjects = writable<Project[]>([]);
 // Selection state: currently selected project ID (for keyboard nav)
 export const selectedProject = writable<string | null>(null);
 
+// Detail panel: which project's detail panel is open (null = closed)
+export const detailPanelProjectId = writable<string | null>(null);
+
 // Focus mode: show only this project ID
 export const focusedProject = writable<string | null>(null);
 

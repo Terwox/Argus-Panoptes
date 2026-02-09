@@ -30,8 +30,9 @@
   const shortcuts = [
     { key: '1-9', description: 'Select project by number' },
     { key: 'Tab', description: 'Cycle through blocked projects' },
+    { key: 'i', description: 'Open detail panel for selected project' },
     { key: 'Enter', description: 'Open selected project in VS Code' },
-    { key: 'Esc', description: 'Deselect / close help' },
+    { key: 'Esc', description: 'Deselect / close panels' },
     { key: '?', description: 'Show this help' },
   ];
 </script>

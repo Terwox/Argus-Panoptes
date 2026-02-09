@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Error Bot Test</title>
+  <style>
+    body {
+      background: #1a1a1a;
+      color: white;
+      font-family: sans-serif;
+      padding: 40px;
+      display: flex;
+      gap: 40px;
+      flex-wrap: wrap;
+    }
+    .bot-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .bot {
+      width: 100px;
+      height: 100px;
+    }
+    .status {
+      font-size: 14px;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body>
+  <div class="bot-container">
+    <div class="status">Error State (Confused)</div>
+    <div class="bot">
+      <svg viewBox="0 0 100 100" class="w-full h-full">
+        <!-- Body (Purple) -->
+        <rect x="20" y="30" width="60" height="50" rx="10" fill="#a855f7" />
+
+        <!-- Antenna -->
+        <line x1="50" y1="30" x2="50" y2="15" stroke="#a855f7" stroke-width="4" stroke-linecap="round" />
+        <circle cx="50" cy="12" r="8" fill="#a855f7" opacity="0.3" />
+        <circle cx="50" cy="12" r="5" fill="#a855f7" />
+        <circle cx="48" cy="10" r="2" fill="white" opacity="0.7" />
+
+        <!-- Confused eyes - asymmetric -->
+        <circle cx="37" cy="48" r="6" fill="#fff" />
+        <circle cx="63" cy="52" r="6" fill="#fff" />
+        <circle cx="37" cy="48" r="3" fill="#333" />
+        <circle cx="63" cy="52" r="3" fill="#333" />
+
+        <!-- Confused mouth - small puzzled "o" -->
+        <ellipse cx="50" cy="68" rx="5" ry="6" fill="none" stroke="#333" stroke-width="2.5" />
+
+        <!-- Question mark accessory -->
+        <text x="73" y="42" font-size="10" fill="#a855f7" opacity="0.6">?</text>
+
+        <!-- Arms -->
+        <rect x="8" y="50" width="14" height="6" rx="3" fill="#a855f7" />
+        <rect x="78" y="48" width="14" height="6" rx="3" fill="#a855f7" />
+
+        <!-- Legs (dark pants) -->
+        <rect x="30" y="78" width="10" height="12" rx="3" fill="#27272a" />
+        <rect x="60" y="78" width="10" height="12" rx="3" fill="#27272a" />
+      </svg>
+    </div>
+  </div>
+
+  <div class="bot-container">
+    <div class="status">Blocked State (Worried)</div>
+    <div class="bot">
+      <svg viewBox="0 0 100 100" class="w-full h-full">
+        <!-- Body (Amber) -->
+        <rect x="20" y="30" width="60" height="50" rx="10" fill="#f59e0b" />
+
+        <!-- Antenna -->
+        <line x1="50" y1="30" x2="50" y2="15" stroke="#f59e0b" stroke-width="4" stroke-linecap="round" />
+        <circle cx="50" cy="12" r="8" fill="#f59e0b" opacity="0.3" />
+        <circle cx="50" cy="12" r="5" fill="#f59e0b" />
+        <circle cx="48" cy="10" r="2" fill="white" opacity="0.7" />
+
+        <!-- Worried eyes - wide open -->
+        <circle cx="37" cy="50" r="8" fill="#fff" />
+        <circle cx="63" cy="50" r="8" fill="#fff" />
+        <circle cx="37" cy="50" r="4" fill="#333" />
+        <circle cx="63" cy="50" r="4" fill="#333" />
+
+        <!-- Worried mouth - open -->
+        <ellipse cx="50" cy="68" rx="8" ry="6" fill="#333" />
+
+        <!-- Arms -->
+        <rect x="8" y="50" width="14" height="6" rx="3" fill="#f59e0b" />
+        <rect x="78" y="48" width="14" height="6" rx="3" fill="#f59e0b" />
+
+        <!-- Legs -->
+        <rect x="30" y="78" width="10" height="12" rx="3" fill="#27272a" />
+        <rect x="60" y="78" width="10" height="12" rx="3" fill="#27272a" />
+      </svg>
+    </div>
+  </div>
+
+  <div class="bot-container">
+    <div class="status">Working State (Happy)</div>
+    <div class="bot">
+      <svg viewBox="0 0 100 100" class="w-full h-full">
+        <!-- Body (Blue) -->
+        <rect x="20" y="30" width="60" height="50" rx="10" fill="#3b82f6" />
+
+        <!-- Antenna -->
+        <line x1="50" y1="30" x2="50" y2="15" stroke="#3b82f6" stroke-width="4" stroke-linecap="round" />
+        <circle cx="50" cy="12" r="8" fill="#3b82f6" opacity="0.3" />
+        <circle cx="50" cy="12" r="5" fill="#3b82f6" />
+        <circle cx="48" cy="10" r="2" fill="white" opacity="0.7" />
+
+        <!-- Normal focused eyes -->
+        <circle cx="37" cy="50" r="6" fill="#fff" />
+        <circle cx="63" cy="50" r="6" fill="#fff" />
+        <circle cx="38" cy="51" r="3" fill="#333" />
+        <circle cx="64" cy="51" r="3" fill="#333" />
+
+        <!-- Determined smile -->
+        <path d="M 40 65 Q 50 72 60 65" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" />
+
+        <!-- Arms -->
+        <rect x="8" y="50" width="14" height="6" rx="3" fill="#3b82f6" />
+        <rect x="78" y="48" width="14" height="6" rx="3" fill="#3b82f6" />
+
+        <!-- Legs -->
+        <rect x="30" y="78" width="10" height="12" rx="3" fill="#1e1b4b" />
+        <rect x="60" y="78" width="10" height="12" rx="3" fill="#1e1b4b" />
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

@@ -14,8 +14,11 @@
     selectedProject,
     focusedProject,
     layoutMode,
+    themeMode,
+    applyTheme,
   } from './stores/state';
   import ProjectCard from './components/ProjectCard.svelte';
+  import ProjectDetailPanel from './components/ProjectDetailPanel.svelte';
   import ViewToggle from './components/ViewToggle.svelte';
   import Scoreboard from './components/Scoreboard.svelte';
   import HealthIndicator from './components/HealthIndicator.svelte';
@@ -23,10 +26,22 @@
   import KeyboardHelp from './components/KeyboardHelp.svelte';
   import Settings from './components/Settings.svelte';
   import { toasts } from './stores/toast';
-  import type { CompletedWorkItem } from '../../shared/types';
+  import type { CompletedWorkItem, Project } from '../../shared/types';
 
   let showHelp = false;
   let showSettings = false;
+  let detailProject: Project | null = null;
+  let showDetailPanel = false;
+
+  function openDetailPanel(project: Project) {
+    detailProject = project;
+    showDetailPanel = true;
+  }
+
+  function closeDetailPanel() {
+    showDetailPanel = false;
+    detailProject = null;
+  }
 
   // Track which completed items we've shown toasts for
   let shownCompletionToasts = new Set<string>();
@@ -62,6 +77,9 @@
 
   onMount(() => {
     connect();
+
+    // Apply theme on mount
+    applyTheme($themeMode);
 
     // Auto-detect compact mode on load
     updateLayoutMode();
@@ -123,14 +141,29 @@
       return;
     }
 
-    // Handle Escape to deselect / close help / close settings
+    // Handle Escape to close panels / deselect
     if (e.key === 'Escape') {
-      if (showSettings) {
+      if (showDetailPanel) {
+        closeDetailPanel();
+      } else if (showSettings) {
         showSettings = false;
       } else if (showHelp) {
         showHelp = false;
       } else {
         selectedProject.set(null);
+      }
+      return;
+    }
+
+    // Handle 'i' to open detail panel for selected project
+    if (e.key === 'i' || e.key === 'I') {
+      if ($selectedProject && !showDetailPanel) {
+        const project = $sortedProjects.find(p => p.id === $selectedProject);
+        if (project) {
+          openDetailPanel(project);
+        }
+      } else if (showDetailPanel) {
+        closeDetailPanel();
       }
       return;
     }
@@ -210,21 +243,67 @@
     : rowWeights.length <= 2
       ? '1fr'
       : rowWeights.slice(0, Math.ceil(totalCells / 2)).map(w => `${w}fr`).join(' ');
+
+  // Keep detail panel project data fresh as state updates arrive
+  // Use $sortedProjects as the reactive dependency; only update if the project object actually changed
+  $: if (showDetailPanel && detailProject) {
+    const fresh = $sortedProjects.find(p => p.id === detailProject!.id);
+    if (fresh && fresh !== detailProject) {
+      detailProject = fresh;
+    } else if (!fresh) {
+      // Project disappeared (session ended), close panel
+      closeDetailPanel();
+    }
+  }
+
+  // Ambient background hue based on overall system health
+  // P1 Peripherality: Subtle color shift detectable in peripheral vision
+  type SystemHealth = 'calm' | 'needs-attention' | 'rate-limited';
+
+  $: systemHealth = (() => {
+    if ($sortedProjects.length === 0) return 'calm';
+
+    // Check for rate limits (highest priority visual state)
+    const hasRateLimit = $sortedProjects.some(p => p.status === 'rate_limited');
+    if (hasRateLimit) return 'rate-limited';
+
+    // Check for blocked or error states
+    const hasBlockedOrError = $sortedProjects.some(p =>
+      p.status === 'blocked' || p.status === 'error'
+    );
+    if (hasBlockedOrError) return 'needs-attention';
+
+    return 'calm';
+  })() as SystemHealth;
+
+  // Map system health to ambient color overlay
+  // Very subtle - only 5-10% opacity to avoid distraction
+  $: ambientOverlay = {
+    'calm': 'rgba(59, 130, 246, 0.03)', // Very subtle cool blue
+    'needs-attention': 'rgba(251, 146, 60, 0.06)', // Subtle warm amber
+    'rate-limited': 'rgba(125, 211, 252, 0.05)', // Subtle sky blue
+  }[systemHealth];
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
 
-<div class="h-screen flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)] overflow-hidden">
+<div class="h-screen flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)] overflow-hidden relative">
+  <!-- Ambient background hue overlay - subtle color shift based on system health -->
+  <div
+    class="absolute inset-0 pointer-events-none transition-colors duration-[2500ms] ease-in-out"
+    style="background-color: {ambientOverlay};"
+  ></div>
+
   <!-- Header -->
-  <header class="flex-shrink-0 bg-[var(--bg-primary)] backdrop-blur border-b border-[var(--border-default)]">
+  <header class="flex-shrink-0 bg-[var(--bg-primary)]/95 backdrop-blur border-b border-[var(--border-default)] relative z-10">
     <div class="max-w-[1800px] mx-auto px-4 py-3 flex items-center justify-between">
       <div class="flex items-center gap-3">
         <span class="text-2xl">ꙮ</span>
         <h1 class="text-xl font-semibold tracking-tight">Argus Panoptes</h1>
         <span
-          class="text-xs px-2 py-0.5 rounded-full {$connected
+          class="text-xs px-2 py-0.5 rounded-full transition-colors duration-300 {$connected
             ? 'bg-green-500/20 text-green-400'
-            : 'bg-amber-500/10 text-amber-400/70'}"
+            : 'bg-slate-500/10 text-slate-400'}"
         >
           {$connected ? 'Connected' : 'Disconnected'}
         </span>
@@ -285,7 +364,7 @@
 
   <!-- Scoreboard (secondary stats bar) -->
   {#if $sortedProjects.length > 0}
-    <div class="flex-shrink-0 bg-[var(--bg-primary)] border-b border-[var(--border-subtle)]">
+    <div class="flex-shrink-0 bg-[var(--bg-primary)]/95 border-b border-[var(--border-subtle)] relative z-10">
       <div class="max-w-[1800px] mx-auto px-4 py-2">
         <Scoreboard />
       </div>
@@ -294,8 +373,16 @@
 
   <!-- Main content - fills remaining space -->
   <!-- DESIGN PRINCIPLE: No scrolling unless >4 projects or very small viewport -->
-  <main class="flex-1 min-h-0 {allowScroll ? 'overflow-auto' : 'overflow-hidden'}">
-    <div class="max-w-[1800px] mx-auto px-4 py-4 h-full">
+  <main class="flex-1 min-h-0 {allowScroll ? 'overflow-auto' : 'overflow-hidden'} relative z-10">
+    <!-- Disconnected overlay: subtle frost/desaturation when not connected -->
+    {#if !$connected}
+      <div
+        class="absolute inset-0 bg-slate-900/30 backdrop-blur-[1px] z-10 pointer-events-none transition-opacity duration-500"
+        style="backdrop-filter: blur(1px) saturate(0.6);"
+      ></div>
+    {/if}
+
+    <div class="max-w-[1800px] mx-auto px-4 py-4 h-full {!$connected ? 'opacity-80' : 'opacity-100'} transition-opacity duration-500">
       {#if $sortedProjects.length === 0}
         <!-- Empty state -->
         <div class="flex flex-col items-center justify-center h-full text-center">
@@ -319,6 +406,7 @@
               detailed={$viewMode === 'detailed'}
               selected={project.id === $selectedProject}
               dimmed={$focusedProject !== null && project.id !== $focusedProject}
+              on:openDetail={(e) => openDetailPanel(e.detail)}
             />
           {/each}
         </div>
@@ -334,4 +422,11 @@
 
   <!-- Settings Panel -->
   <Settings bind:open={showSettings} />
+
+  <!-- Project Detail Panel -->
+  <ProjectDetailPanel
+    project={detailProject}
+    open={showDetailPanel}
+    on:close={closeDetailPanel}
+  />
 </div>

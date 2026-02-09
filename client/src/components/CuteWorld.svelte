@@ -14,6 +14,7 @@
     CONJURE_ANIMATIONS,
     BOT_REACTIONS,
     HAPPY_EMOJIS,
+    CLUSTERING,
     type ConjureAnimation,
     type BotReaction,
   } from '../lib/cuteWorldConfig';
@@ -145,6 +146,7 @@
     bobble: boolean; // Bobble animation trigger
     forceShowBubble: boolean; // Temporarily force bubble visible when clicked
     previousBubbleText: string; // Track previous text for floating-away animation
+    previousStatus: string; // Track previous status to detect transitions
   }
 
   interface FloatingThought {
@@ -156,13 +158,25 @@
     width: number; // Bubble width for text sizing
   }
 
+  interface CelebrationParticle {
+    id: number;
+    x: number; // Starting X position (bot center)
+    y: number; // Starting Y position (bot center)
+    angle: number; // Direction to float (in radians)
+    emoji: string; // ⭐ or ✨
+  }
+
   let bots: BotState[] = [];
   let floatingThoughts: FloatingThought[] = [];
   let floatingThoughtIdCounter = 0;
+  let celebrationParticles: CelebrationParticle[] = [];
+  let celebrationParticleIdCounter = 0;
   let containerWidth = 300;
   let containerHeight = height;
   let animationFrame: number;
   let frameCount = 0;
+  let hoveredBubbleId: string | null = null; // Track which bubble is being hovered
+  let hoverTimeout: number | null = null; // Timeout for delayed unhover
 
   const BOT_SIZE = 56; // Bigger bots
   // DESIGN PRINCIPLE: NO VISIBLE TIMERS - no "47s ago" anxiety counters
@@ -286,6 +300,79 @@
   $: primaryBlockedAgent = blockedAgents[0];
   $: blockedQueueCount = blockedAgents.length;
 
+  // === COLLABORATION CLUSTERING ===
+  // Detect which subagents are actively collaborating with their parent conductor.
+  // A subagent "clusters" when:
+  //   1. It has a parentId matching a working conductor
+  //   2. The conductor is actively delegating (delegatingTo is set), OR
+  //   3. The subagent is working (actively receiving/processing delegated work)
+  // Returns a Map of subagent bot index -> parent conductor bot index
+  interface ClusterLink {
+    subagentIdx: number;
+    conductorIdx: number;
+    conductorId: string;
+  }
+
+  $: clusterLinks = (() => {
+    const links: ClusterLink[] = [];
+    // Build a lookup of conductor bots by agent id
+    const conductorMap = new Map<string, number>(); // agentId -> bot index
+    for (let i = 0; i < bots.length; i++) {
+      if (bots[i].agent.type === 'main' && bots[i].agent.status === 'working') {
+        conductorMap.set(bots[i].agent.id, i);
+      }
+    }
+
+    for (let i = 0; i < bots.length; i++) {
+      const bot = bots[i];
+      if (bot.agent.type !== 'subagent') continue;
+      if (bot.agent.status !== 'working') continue;
+      if (!bot.agent.parentId) continue;
+
+      const parentIdx = conductorMap.get(bot.agent.parentId);
+      if (parentIdx === undefined) continue;
+
+      const conductor = bots[parentIdx];
+      // Cluster when conductor is delegating or subagent is actively working
+      // (subagent existence during "working" status implies active collaboration)
+      if (conductor.agent.delegatingTo || bot.agent.status === 'working') {
+        links.push({
+          subagentIdx: i,
+          conductorIdx: parentIdx,
+          conductorId: bot.agent.parentId,
+        });
+      }
+    }
+    return links;
+  })();
+
+  // Quick lookup: is this bot index part of a cluster?
+  $: clusteringBotIndices = new Set(clusterLinks.flatMap(l => [l.subagentIdx, l.conductorIdx]));
+
+  // For a given subagent bot index, get its conductor bot index (or -1)
+  function getClusterConductorIdx(botIdx: number): number {
+    const link = clusterLinks.find(l => l.subagentIdx === botIdx);
+    return link ? link.conductorIdx : -1;
+  }
+
+  // Are two bots in the same cluster? (for softer collision)
+  function areInSameCluster(idxA: number, idxB: number): boolean {
+    for (const link of clusterLinks) {
+      if ((link.subagentIdx === idxA && link.conductorIdx === idxB) ||
+          (link.subagentIdx === idxB && link.conductorIdx === idxA)) {
+        return true;
+      }
+      // Two subagents with the same conductor
+      const otherLink = clusterLinks.find(l =>
+        l.conductorId === link.conductorId &&
+        ((l.subagentIdx === idxA && link.subagentIdx === idxB) ||
+         (l.subagentIdx === idxB && link.subagentIdx === idxA))
+      );
+      if (otherLink) return true;
+    }
+    return false;
+  }
+
   // Dynamic bubble sizing based on bot count
   // Few bots = big bubbles (with wrapping), many bots = small marquee bubbles
   $: botCount = bots.length;
@@ -391,10 +478,10 @@
           showBubble: true, // Always visible - no toggling
           forceShowBubble: false, // Set to true when clicked to temporarily show bubble
           bubbleText: getTaskText(agent),
-          scale: 0,
-          spawning: true,
+          scale: $prefersReducedMotion ? 1 : 0, // Instant appearance if reduced motion
+          spawning: !$prefersReducedMotion, // Skip spawn animation if reduced motion
           conjureAnimation: conjureAnim,
-          conjureProgress: 0,
+          conjureProgress: $prefersReducedMotion ? 1 : 0, // Instant if reduced motion
           reaction: null,
           reactionEmoji: '',
           bounceTimer: 0,
@@ -405,6 +492,7 @@
           bobble: false,
           forceShowBubble: false,
           previousBubbleText: '',
+          previousStatus: agent.status,
         }];
       } else {
         // Update existing bot's agent data and bubble text
@@ -412,10 +500,18 @@
           if (b.agent.id === agent.id) {
             const newBubbleText = getTaskText(agent);
             const oldText = b.bubbleText;
+            const oldStatus = b.previousStatus || b.agent.status;
+
             // Spawn floating thought if text meaningfully changed
             if (oldText && newBubbleText !== oldText && oldText !== 'Working...' && oldText !== 'Paused') {
               spawnFloatingThought(b, oldText);
             }
+
+            // Spawn celebration particles if status changed to 'complete'
+            if (oldStatus !== 'complete' && agent.status === 'complete') {
+              spawnCelebrationParticles(b);
+            }
+
             return {
               ...b,
               agent,
@@ -425,6 +521,7 @@
               wanderTimer: b.wanderTimer ?? 1000,
               bubbleText: newBubbleText,
               previousBubbleText: oldText,
+              previousStatus: agent.status,
               showBubble: true, // Always visible
             };
           }
@@ -568,11 +665,38 @@
     return text.slice(0, limit) + '...';
   }
 
+  // Check if text is truncated (for enabling hover-expand)
+  function isTruncated(text: string, limit: number): boolean {
+    return text.length > limit;
+  }
+
+  // Handle bubble hover with delayed unhover
+  function handleBubbleEnter(botId: string) {
+    if (hoverTimeout) {
+      clearTimeout(hoverTimeout);
+      hoverTimeout = null;
+    }
+    hoveredBubbleId = botId;
+  }
+
+  function handleBubbleLeave() {
+    if (hoverTimeout) {
+      clearTimeout(hoverTimeout);
+    }
+    hoverTimeout = window.setTimeout(() => {
+      hoveredBubbleId = null;
+      hoverTimeout = null;
+    }, 200);
+  }
+
   // Spawn a floating thought that drifts upward and fades when bubble text changes
   const MAX_FLOATING_THOUGHTS = 4;
   const FLOATING_THOUGHT_DURATION = 2500; // ms
 
   function spawnFloatingThought(bot: BotState, oldText: string): void {
+    // Skip floating thoughts if reduced motion preferred
+    if ($prefersReducedMotion) return;
+
     // Get current bubble position for this bot
     const computed = getBubblePosition(bot.agent.id);
     if (!computed) return;
@@ -608,6 +732,40 @@
     setTimeout(() => {
       floatingThoughts = floatingThoughts.filter(t => t.id !== thoughtId);
     }, FLOATING_THOUGHT_DURATION);
+  }
+
+  // Spawn celebration particles when agent completes
+  const CELEBRATION_PARTICLE_COUNT = 10; // 8-12 particles
+  const CELEBRATION_DURATION = 1000; // ms
+
+  function spawnCelebrationParticles(bot: BotState): void {
+    // Skip particles if reduced motion preferred
+    if ($prefersReducedMotion) return;
+
+    const botCenterX = bot.x + BOT_SIZE / 2;
+    const botCenterY = bot.y + BOT_SIZE / 2;
+    const emojis = ['⭐', '✨'];
+
+    // Create particles in a circle around the bot, floating upward and outward
+    const particles: CelebrationParticle[] = [];
+    for (let i = 0; i < CELEBRATION_PARTICLE_COUNT; i++) {
+      const angle = (i / CELEBRATION_PARTICLE_COUNT) * Math.PI * 2;
+      particles.push({
+        id: celebrationParticleIdCounter++,
+        x: botCenterX,
+        y: botCenterY,
+        angle: angle,
+        emoji: emojis[Math.floor(Math.random() * emojis.length)],
+      });
+    }
+
+    celebrationParticles = [...celebrationParticles, ...particles];
+
+    // Auto-remove after animation completes
+    const particleIds = particles.map(p => p.id);
+    setTimeout(() => {
+      celebrationParticles = celebrationParticles.filter(p => !particleIds.includes(p.id));
+    }, CELEBRATION_DURATION);
   }
 
   // Calculate bubble vertical offset to prevent overlapping bubbles
@@ -763,6 +921,7 @@
       }
 
       // === WANDERING PHYSICS FOR SUBAGENTS ===
+      const botIdx = bots.indexOf(bot); // Compute once for clustering checks below
 
       // Handle relocating bots differently - they walk determinedly to their new spot
       if (bot.isRelocating) {
@@ -799,22 +958,56 @@
           bot.wanderTimer = 500 + Math.random() * 1500;
         }
 
-        // Gentle pull towards home desk
-        const homeDistX = bot.homeX - bot.x;
-        const homeDistY = bot.homeY - bot.y;
-        bot.vx += homeDistX * HOME_PULL;
-        bot.vy += homeDistY * HOME_PULL;
+        // === CLUSTERING: Pull collaborating subagents toward conductor ===
+        const clusterConductorIdx = getClusterConductorIdx(botIdx);
+
+        if (clusterConductorIdx >= 0) {
+          // This bot is collaborating with a conductor - pull toward conductor
+          const conductor = bots[clusterConductorIdx];
+          const clusterTargetX = conductor.x + BOT_SIZE / 2;
+          const clusterTargetY = conductor.y + BOT_SIZE / 2;
+
+          // Calculate offset position within cluster radius (don't target conductor center directly)
+          // Use bot's home position as a bias to spread bots around the conductor
+          const angleToHome = Math.atan2(bot.homeY - conductor.y, bot.homeX - conductor.x);
+          const offsetX = Math.cos(angleToHome) * CLUSTERING.CLUSTER_RADIUS * 0.6;
+          const offsetY = Math.sin(angleToHome) * CLUSTERING.CLUSTER_RADIUS * 0.6;
+
+          const targetX = clusterTargetX + offsetX;
+          const targetY = clusterTargetY + offsetY;
+
+          const clusterDistX = targetX - bot.x;
+          const clusterDistY = targetY - bot.y;
+
+          // Stronger pull toward cluster center than normal home pull
+          bot.vx += clusterDistX * CLUSTERING.CLUSTER_PULL;
+          bot.vy += clusterDistY * CLUSTERING.CLUSTER_PULL;
+        } else {
+          // Normal: Gentle pull towards home desk
+          const homeDistX = bot.homeX - bot.x;
+          const homeDistY = bot.homeY - bot.y;
+          bot.vx += homeDistX * HOME_PULL;
+          bot.vy += homeDistY * HOME_PULL;
+        }
       }
 
       // Bounce off other bots (billiard ball physics)
+      // CLUSTERING: Softer collisions between collaborating bots
       let hadCollision = false;
-      for (const other of bots) {
+      for (let otherIdx = 0; otherIdx < bots.length; otherIdx++) {
+        const other = bots[otherIdx];
         if (other === bot) continue;
 
         const dx = bot.x - other.x;
         const dy = bot.y - other.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const minDist = other.agent.type === 'main' ? CONDUCTOR_EXCLUSION_DISTANCE : MIN_BOT_DISTANCE;
+
+        // CLUSTERING: Use shorter distance for collaborating pairs
+        const inCluster = areInSameCluster(botIdx, otherIdx);
+        const baseMinDist = other.agent.type === 'main' ? CONDUCTOR_EXCLUSION_DISTANCE : MIN_BOT_DISTANCE;
+        const minDist = inCluster
+          ? CLUSTERING.MIN_CLUSTER_DISTANCE
+          : baseMinDist;
 
         if (dist < minDist && dist > 0) {
           hadCollision = true;
@@ -832,8 +1025,9 @@
 
           // Only bounce if moving towards each other
           if (dvn < 0) {
-            // Bounce impulse (elastic collision)
-            const impulse = -dvn * BOUNCE * 1.5;
+            // CLUSTERING: Softer bounce for collaborating bots
+            const repulsionFactor = inCluster ? CLUSTERING.CLUSTER_REPULSION_FACTOR : 1.0;
+            const impulse = -dvn * BOUNCE * 1.5 * repulsionFactor;
 
             bot.vx += impulse * nx;
             bot.vy += impulse * ny;
@@ -847,8 +1041,9 @@
 
           // Separate overlapping bots (prevent sticking)
           const overlap = minDist - dist;
-          // Use stronger separation when near conductor (must push away harder)
-          const separationStrength = other.agent.type === 'main' ? 1.0 : 0.5;
+          // CLUSTERING: Gentler separation for collaborating pairs
+          const baseSeparation = other.agent.type === 'main' ? 1.0 : 0.5;
+          const separationStrength = inCluster ? baseSeparation * CLUSTERING.CLUSTER_REPULSION_FACTOR : baseSeparation;
           const separationX = nx * overlap * separationStrength;
           const separationY = ny * overlap * separationStrength;
           bot.x += separationX;
@@ -862,7 +1057,9 @@
 
       // Track restlessness - relocate desk if can't settle near home
       // Measures: distance from home + velocity (being pushed around or wandering far)
-      if (!bot.isRelocating) {
+      // CLUSTERING: Skip restlessness when bot is clustering (intentionally far from home desk)
+      const isClustering = getClusterConductorIdx(botIdx) >= 0;
+      if (!bot.isRelocating && !isClustering) {
         const distFromHome = Math.sqrt(
           (bot.x - bot.homeX) ** 2 + (bot.y - bot.homeY) ** 2
         );
@@ -925,14 +1122,19 @@
         bot.vy = -Math.abs(bot.vy) * BOUNCE;
       }
 
-      // HARD CONSTRAINT: Force ALL non-conductor bots away from conductor position
+      // HARD CONSTRAINT: Force ALL non-conductor bots away from other bots
       // This runs EVERY frame to ensure no overlap
-      for (const otherBot of bots) {
+      // CLUSTERING: Use softer distance for collaborating pairs
+      for (let otherIdx2 = 0; otherIdx2 < bots.length; otherIdx2++) {
+        const otherBot = bots[otherIdx2];
         if (otherBot === bot) continue;
         const dx = bot.x - otherBot.x;
         const dy = bot.y - otherBot.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const minDist = otherBot.agent.type === 'main' ? CONDUCTOR_EXCLUSION_DISTANCE : MIN_BOT_DISTANCE;
+        const inCluster2 = areInSameCluster(botIdx, otherIdx2);
+        const minDist = inCluster2
+          ? CLUSTERING.MIN_CLUSTER_DISTANCE
+          : (otherBot.agent.type === 'main' ? CONDUCTOR_EXCLUSION_DISTANCE : MIN_BOT_DISTANCE);
 
         if (dist < minDist && dist > 0) {
           // Force this bot away
@@ -1258,6 +1460,7 @@
               isRelocating: b.isRelocating,
             })),
             bubbles: computedBubbles,
+            clusterLinks: clusterLinks,
             bounds: {
               width: containerWidth,
               height: containerHeight,
@@ -1571,22 +1774,31 @@
         {@const conductorCount = bots.filter(b => b.agent.type === 'main').length}
         {@const isSoloConductor = isConductor && conductorCount === 1}
         <!-- SINGLE CONDUCTOR: When there's only one conductor, show full text (plenty of room) -->
-        {@const displayText = isPrimaryBlocked || isSoloConductor
-          ? bot.bubbleText
-          : truncateForDisplay(bot.bubbleText, isConductor ? bubbleCharLimit + 100 : bubbleCharLimit)}
+        {@const charLimit = isConductor ? bubbleCharLimit + 100 : bubbleCharLimit}
+        {@const isHovered = hoveredBubbleId === bot.agent.id}
+        {@const canExpand = !isPrimaryBlocked && !isSoloConductor && isTruncated(bot.bubbleText, charLimit)}
+        {@const displayText = isPrimaryBlocked || isSoloConductor || (isHovered && canExpand)
+          ? truncateForDisplay(bot.bubbleText, 300) // Show up to 300 chars on hover
+          : truncateForDisplay(bot.bubbleText, charLimit)}
         {@const needsMarquee = !isPrimaryBlocked && !bubbleAllowWrap && !isConductor && displayText.length > marqueeThreshold}
         <!-- DESIGN: Bubbles travel WITH their bots, tail always points at bot -->
         <!-- Use current bot position for bubble placement, clamp to container bounds -->
         {@const actualBotCenterX = isPrimaryBlocked
           ? (containerWidth - decisionBubbleWidth) / 2 + decisionBubbleWidth / 2
           : bot.x + BOT_SIZE / 2}
-        {@const bubbleWidth = computed.width}
+        <!-- Expand bubble width on hover to fit more text -->
+        {@const baseWidth = computed.width}
+        {@const expandedWidth = Math.min(bubbleMaxWidth, baseWidth * 1.5)}
+        {@const bubbleWidth = isHovered && canExpand ? expandedWidth : baseWidth}
         <!-- Position bubble centered on bot, clamped to container bounds -->
         {@const idealBubbleLeft = actualBotCenterX - bubbleWidth / 2}
         {@const bubbleLeft = Math.max(5, Math.min(containerWidth - bubbleWidth - 5, idealBubbleLeft))}
         {@const bubbleBelow = computed.bubbleBelow}
         <!-- Compute bubble top based on current bot Y position, clamped to container -->
-        {@const bubbleHeight = isPrimaryBlocked ? decisionBubbleHeight : isSoloConductor ? 80 : (isConductor ? 48 : 28)}
+        <!-- Expand bubble height on hover to fit more text -->
+        {@const baseHeight = isPrimaryBlocked ? decisionBubbleHeight : isSoloConductor ? 80 : (isConductor ? 48 : 28)}
+        {@const expandedHeight = isConductor ? 80 : 60}
+        {@const bubbleHeight = isHovered && canExpand ? expandedHeight : baseHeight}
         {@const tailHeightForCalc = 10}
         {@const totalHeight = bubbleHeight + tailHeightForCalc}
         {@const idealBubbleTop = bubbleBelow
@@ -1649,19 +1861,24 @@
           Z
         `}
         <!-- FUTURE: Bubble click → transcript navigation (not yet working, needs VS Code terminal scrollback API) -->
+        {@const baseZIndex = 1000 + (bubbleBelow ? Math.floor(bot.y) + 100 : Math.floor(containerHeight - bot.y))}
         <div
-          class="absolute pointer-events-none"
+          class="absolute transition-all duration-200 {canExpand ? 'pointer-events-auto' : 'pointer-events-none'}"
           style="
             left: {bubbleLeft}px;
             top: {clampedBubbleTop}px;
-            z-index: {1000 + (bubbleBelow ? Math.floor(bot.y) + 100 : Math.floor(containerHeight - bot.y))};
+            z-index: {isHovered ? 5000 : baseZIndex};
           "
+          on:mouseenter={() => canExpand && handleBubbleEnter(bot.agent.id)}
+          on:mouseleave={() => canExpand && handleBubbleLeave()}
+          role="tooltip"
+          aria-label={canExpand ? bot.bubbleText : undefined}
         >
           <!-- SVG background shape with seamless border -->
           <svg
             width="{svgWidth}"
             height="{svgHeight}"
-            class="{isConductor ? 'backdrop-blur-xl' : 'backdrop-blur'}"
+            class="{isConductor ? 'backdrop-blur-xl' : 'backdrop-blur'} transition-all duration-200"
             style="filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));"
           >
             <path
@@ -1673,7 +1890,7 @@
           </svg>
           <!-- Text content positioned over the SVG -->
           <div
-            class="absolute {isConductor ? 'text-base' : isPrimaryBlocked ? 'text-sm' : bubbleTextClass} overflow-hidden
+            class="absolute {isConductor ? 'text-base' : isPrimaryBlocked ? 'text-sm' : bubbleTextClass} overflow-hidden transition-all duration-200
                    {bot.agent.status === 'blocked'
                      ? 'text-amber-200'
                      : bot.agent.status === 'complete'
@@ -1687,8 +1904,8 @@
             "
           >
             <div
-              class="{isPrimaryBlocked || isConductor || bubbleAllowWrap ? 'whitespace-normal' : 'whitespace-nowrap'} {needsMarquee ? 'animate-marquee' : ''}"
-              style={needsMarquee ? `--marquee-offset: ${bubbleWidth - 40}px` : ''}
+              class="{isPrimaryBlocked || isConductor || bubbleAllowWrap || (isHovered && canExpand) ? 'whitespace-normal' : 'whitespace-nowrap'} {needsMarquee && !isHovered && !$prefersReducedMotion ? 'animate-marquee' : ''}"
+              style={needsMarquee && !isHovered && !$prefersReducedMotion ? `--marquee-offset: ${bubbleWidth - 40}px` : ''}
             >
               {displayText}
             </div>
@@ -1711,6 +1928,23 @@
     >
       <div class="text-xs text-white/50 whitespace-nowrap overflow-hidden text-ellipsis">
         {thought.text}
+      </div>
+    </div>
+  {/each}
+
+  <!-- Celebration particles - spawn when agent completes -->
+  {#each celebrationParticles as particle (particle.id)}
+    <div
+      class="absolute pointer-events-none animate-celebration-sparkle"
+      style="
+        left: {particle.x}px;
+        top: {particle.y}px;
+        z-index: 950;
+        --particle-angle: {particle.angle}rad;
+      "
+    >
+      <div class="text-base">
+        {particle.emoji}
       </div>
     </div>
   {/each}
@@ -1774,6 +2008,45 @@
     {/if}
   {/if}
 
+  <!-- Collaboration connector lines - subtle dotted lines between clustered bots -->
+  {#if clusterLinks.length > 0}
+    <svg
+      class="absolute inset-0 pointer-events-none"
+      width="{containerWidth}"
+      height="{containerHeight}"
+      style="z-index: 3;"
+    >
+      {#each clusterLinks as link (link.subagentIdx + '-' + link.conductorIdx)}
+        {@const sub = bots[link.subagentIdx]}
+        {@const con = bots[link.conductorIdx]}
+        {#if sub && con && sub.scale > 0.5 && con.scale > 0.5}
+          {@const subCenterX = sub.x + BOT_SIZE / 2}
+          {@const subCenterY = sub.y + BOT_SIZE / 2}
+          {@const conCenterX = con.x + BOT_SIZE / 2}
+          {@const conCenterY = con.y + BOT_SIZE / 2}
+          {@const dist = Math.sqrt((subCenterX - conCenterX) ** 2 + (subCenterY - conCenterY) ** 2)}
+          <!-- Only show line if bots are within reasonable proximity (within 2x cluster radius) -->
+          {#if dist < CLUSTERING.CLUSTER_RADIUS * 2.5}
+            <!-- Fade line opacity based on distance - closer = more visible -->
+            {@const distFactor = Math.max(0, 1 - dist / (CLUSTERING.CLUSTER_RADIUS * 2.5))}
+            {@const lineOpacity = CLUSTERING.CONNECTOR_OPACITY * distFactor}
+            <line
+              x1="{subCenterX}"
+              y1="{subCenterY}"
+              x2="{conCenterX}"
+              y2="{conCenterY}"
+              stroke="currentColor"
+              stroke-width="{CLUSTERING.CONNECTOR_WIDTH}"
+              stroke-dasharray="{CLUSTERING.CONNECTOR_DASH}"
+              opacity="{lineOpacity}"
+              class="text-cyan-400 cluster-connector-line"
+            />
+          {/if}
+        {/if}
+      {/each}
+    </svg>
+  {/if}
+
   <!-- Bots -->
   {#each bots as bot (bot.agent.id)}
     <!-- MULTIPLE CONDUCTORS: If only one conductor remains, use index 0 (primary blue) -->
@@ -1784,12 +2057,12 @@
     <div
       class="absolute transition-transform duration-100
              {bot.agent.status === 'blocked' ? 'cursor-pointer hover:scale-110' : 'cursor-pointer'}
-             {bot.reaction === 'wave' ? 'animate-bot-wave' : ''}
-             {bot.reaction === 'bounce' ? 'animate-bot-bounce' : ''}
-             {bot.reaction === 'spin' ? 'animate-bot-spin' : ''}
-             {bot.reaction === 'giggle' ? 'animate-bot-giggle' : ''}
-             {bot.reaction === 'flip' ? 'animate-bot-flip' : ''}
-             {bot.reaction === 'somersault' ? 'animate-bot-somersault' : ''}"
+             {bot.reaction === 'wave' && !$prefersReducedMotion ? 'animate-bot-wave' : ''}
+             {bot.reaction === 'bounce' && !$prefersReducedMotion ? 'animate-bot-bounce' : ''}
+             {bot.reaction === 'spin' && !$prefersReducedMotion ? 'animate-bot-spin' : ''}
+             {bot.reaction === 'giggle' && !$prefersReducedMotion ? 'animate-bot-giggle' : ''}
+             {bot.reaction === 'flip' && !$prefersReducedMotion ? 'animate-bot-flip' : ''}
+             {bot.reaction === 'somersault' && !$prefersReducedMotion ? 'animate-bot-somersault' : ''}"
       style="
         left: {bot.x}px;
         top: {bot.y}px;
@@ -1841,7 +2114,7 @@
       <!-- Emoji reaction bubble -->
       {#if bot.reaction === 'emoji' && bot.reactionEmoji}
         <div
-          class="absolute left-1/2 -top-4 text-2xl animate-emoji-float pointer-events-none"
+          class="absolute left-1/2 -top-4 text-2xl {$prefersReducedMotion ? '' : 'animate-emoji-float'} pointer-events-none"
           style="transform: translateX(-50%) scaleX({bot.direction === 'left' ? -1 : 1})"
         >
           {bot.reactionEmoji}
@@ -1970,5 +2243,48 @@
 
   .animate-thought-float {
     animation: thought-float-away 2.5s ease-out forwards;
+  }
+
+  /* Celebration sparkles - float upward and outward in a gentle arc */
+  @keyframes celebration-sparkle {
+    0% {
+      opacity: 0;
+      transform: translate(0, 0) scale(0.5);
+    }
+    20% {
+      opacity: 1;
+      transform: translate(
+        calc(cos(var(--particle-angle)) * 10px),
+        calc(sin(var(--particle-angle)) * 10px)
+      ) scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(
+        calc(cos(var(--particle-angle)) * 35px),
+        calc(sin(var(--particle-angle)) * 35px - 25px)
+      ) scale(0.8);
+    }
+  }
+
+  .animate-celebration-sparkle {
+    animation: celebration-sparkle 1s ease-out forwards;
+  }
+
+  /* Collaboration connector lines - subtle drifting dash animation */
+  @keyframes connector-drift {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: 20; }
+  }
+
+  .cluster-connector-line {
+    animation: connector-drift 3s linear infinite;
+  }
+
+  /* Respect reduced motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    .cluster-connector-line {
+      animation: none;
+    }
   }
 </style>

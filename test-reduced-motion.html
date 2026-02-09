@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Reduced Motion Test</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    .box {
+      width: 100px;
+      height: 100px;
+      background: blue;
+      margin: 20px;
+      animation: bounce 1s infinite;
+    }
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-20px); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .box {
+        animation: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Reduced Motion Test</h1>
+  <p>Open DevTools > Rendering > Emulate CSS media feature prefers-reduced-motion: reduce</p>
+  <p>The box should stop animating when reduced motion is enabled.</p>
+  <div class="box"></div>
+  <script>
+    const mql = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const status = document.createElement('p');
+    status.id = 'status';
+    document.body.appendChild(status);
+    
+    function updateStatus() {
+      status.textContent = `Reduced motion: ${mql.matches ? 'ENABLED' : 'DISABLED'}`;
+      status.style.color = mql.matches ? 'green' : 'red';
+      status.style.fontWeight = 'bold';
+    }
+    
+    updateStatus();
+    mql.addEventListener('change', updateStatus);
+  </script>
+</body>
+</html>
