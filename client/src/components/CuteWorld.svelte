@@ -19,12 +19,39 @@
     type BotReaction,
   } from '../lib/cuteWorldConfig';
   import { overloadMode, prefersReducedMotion } from '../stores/state';
+  import { selectBiome, getBiomeBackgroundSVG, getCurrentTimeOfDay, getTimeOverlayColor, getWeatherForStatus, type BiomeDef, type WeatherState } from '../lib/biomes';
+  import { AmbientManager } from '../lib/ambientEffects';
+  import { InteractionQueue, detectInteraction, getInteractionTransform, getInteractionOverlay } from '../lib/interactions';
+  import { getBubbleStyle, getEffectiveBubbleStyleId } from '../lib/bubbleStyles';
 
   export let agents: Agent[];
   export let height: number = 280;
   export let fillHeight: boolean = false; // If true, fill parent container
   export let projectPath: string = ''; // Project path for opening in VS Code
   export let compact: boolean = false; // Compact mode: smaller bots, tighter layout
+
+  // Biome system - deterministic per project
+  $: biome = selectBiome(projectPath);
+  $: biomeBackgroundSVG = containerWidth > 0 && containerHeight > 0
+    ? getBiomeBackgroundSVG(biome, containerWidth, containerHeight)
+    : '';
+  $: timeOfDay = getCurrentTimeOfDay();
+  $: timeOverlay = getTimeOverlayColor(timeOfDay);
+
+  // Weather from project status
+  $: primaryStatus = agents.length > 0 ? agents[0].status : 'idle';
+  $: weather = getWeatherForStatus(primaryStatus, biome) as WeatherState;
+  $: isCalm = agents.every(a => a.status === 'complete' || a.status === 'idle' || a.status === 'sleeping');
+
+  // Ambient effects system
+  const ambientManager = new AmbientManager();
+  let ambientSVG = '';
+
+  // Interaction choreography
+  const interactionQueue = new InteractionQueue();
+  let _prevAgentStatuses = new Map<string, string>();
+  let interactionOverlays: { x: number; y: number; emoji: string; opacity: number; scale: number }[] = [];
+  let interactionParticleItems: { x: number; y: number; emoji: string; opacity: number; scale: number }[] = [];
 
   // Track last animation used for no-repeat logic
   let lastConjureAnimation: ConjureAnimation | null = null;
@@ -535,6 +562,17 @@
     if (conductorBots.length > MAX_CONDUCTORS && frameCount % 100 === 0) {
       console.log('[CuteWorld] Conductors exceeding max slots:', conductorBots.length, '/', MAX_CONDUCTORS);
     }
+
+    // Detect interactions from agent state changes
+    if (!$prefersReducedMotion) {
+      const currentStates = agents.map(a => ({ id: a.id, status: a.status, parentId: a.parentId }));
+      const conductorAgent = agents.find(a => a.type === 'main');
+      const detected = detectInteraction(_prevAgentStatuses, currentStates, conductorAgent?.id);
+      if (detected) {
+        interactionQueue.enqueue(detected.type, detected.primaryId, detected.secondaryId);
+      }
+    }
+    _prevAgentStatuses = new Map(agents.map(a => [a.id, a.status]));
   }
 
   // Get role category from agent name (for desk assignment)
@@ -1154,6 +1192,44 @@
       }
     }
 
+    // Update ambient effects (weather particles, creatures)
+    if (containerWidth > 0 && containerHeight > 0 && frameCount % 2 === 0) {
+      ambientSVG = ambientManager.update(biome, weather, containerWidth, containerHeight, isCalm);
+    }
+
+    // Update interaction choreography
+    const interactionTick = interactionQueue.tick();
+    if (interactionTick.interaction) {
+      const primaryBot = bots.find(b => b.agent.id === interactionTick.interaction!.primaryBotId);
+      const secondaryBot = interactionTick.interaction.secondaryBotId
+        ? bots.find(b => b.agent.id === interactionTick.interaction!.secondaryBotId)
+        : undefined;
+
+      if (primaryBot) {
+        interactionOverlays = getInteractionOverlay(
+          interactionTick.interaction,
+          interactionTick.progress,
+          primaryBot.x + BOT_SIZE / 2, primaryBot.y + BOT_SIZE / 2,
+          secondaryBot ? secondaryBot.x + BOT_SIZE / 2 : undefined,
+          secondaryBot ? secondaryBot.y + BOT_SIZE / 2 : undefined,
+        );
+      }
+    } else {
+      interactionOverlays = [];
+    }
+
+    // Map interaction particles to screen positions
+    interactionParticleItems = interactionTick.particles.map(p => {
+      const pBot = bots.find(b => b.agent.id === interactionTick.interaction?.primaryBotId);
+      return {
+        x: (pBot?.x ?? containerWidth / 2) + BOT_SIZE / 2 + p.x * 10,
+        y: (pBot?.y ?? containerHeight / 2) + BOT_SIZE / 2 + p.y * 10,
+        emoji: p.emoji,
+        opacity: p.opacity,
+        scale: p.scale,
+      };
+    });
+
     if (frameCount % 3 === 0) {
       bots = bots;
     }
@@ -1478,14 +1554,27 @@
 <!-- DESIGN PRINCIPLE: NOTHING SHOULD OVERLAP -->
 <!-- Use clip-path instead of overflow-hidden to allow name tags to extend below bots -->
 <div
-  class="relative rounded-lg bg-gradient-to-b from-gray-900/50 to-gray-900/20 {fillHeight ? 'h-full' : ''}"
-  style="{fillHeight ? '' : `height: ${height}px`} clip-path: inset(-50px 0 -30px 0);"
+  class="relative rounded-lg overflow-hidden {fillHeight ? 'h-full' : ''}"
+  style="{fillHeight ? '' : `height: ${height}px`} clip-path: inset(-50px 0 -30px 0); border: 1px solid {biome.accentColor}22;"
   bind:clientWidth={containerWidth}
   bind:clientHeight={containerHeight}
 >
-  <!-- Ground/floor effect -->
-  <div class="absolute bottom-6 left-0 right-0 h-px bg-gray-700/30"></div>
-  <div class="absolute bottom-5 left-0 right-0 h-px bg-gray-700/20"></div>
+  <!-- Biome background -->
+  {#if containerWidth > 0 && containerHeight > 0}
+    <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 {containerWidth} {containerHeight}" preserveAspectRatio="none">
+      {@html biomeBackgroundSVG}
+    </svg>
+  {/if}
+
+  <!-- Time-of-day overlay -->
+  <div class="absolute inset-0 pointer-events-none" style="background: {timeOverlay};"></div>
+
+  <!-- Ambient effects (weather particles, creatures) -->
+  {#if ambientSVG && !$prefersReducedMotion}
+    <svg class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 4;" viewBox="0 0 {containerWidth} {containerHeight}" preserveAspectRatio="none">
+      {@html ambientSVG}
+    </svg>
+  {/if}
 
   <!-- Desk furniture with role-specific items -->
   {#each Object.entries(DESK_POSITIONS) as [deskKey, pos]}
@@ -1808,16 +1897,19 @@
         <!-- Tail points directly at bot center - minimal offset since bubble follows bot -->
         {@const tailOffset = actualBotCenterX - bubbleLeft - bubbleWidth / 2}
         {@const tailX = Math.max(-bubbleWidth/2 + 20, Math.min(bubbleWidth/2 - 20, tailOffset))}
+        {@const effectiveStyleId = getEffectiveBubbleStyleId(biome.bubbleStyle, bot.agent.status)}
+        {@const bubbleStyleConfig = getBubbleStyle(effectiveStyleId, biome.isDark)}
         {@const bubbleFill = bot.agent.status === 'blocked'
           ? 'rgba(245, 158, 11, 0.3)'
           : bot.agent.status === 'complete'
             ? 'rgba(34, 197, 94, 0.3)'
-            : 'var(--bubble-fill)'}
+            : bubbleStyleConfig.fill}
         {@const bubbleStroke = bot.agent.status === 'blocked'
           ? 'rgba(245, 158, 11, 0.4)'
           : bot.agent.status === 'complete'
             ? 'rgba(34, 197, 94, 0.4)'
-            : 'var(--bubble-stroke)'}
+            : bubbleStyleConfig.stroke}
+        {@const bubbleRotation = bubbleStyleConfig.rotation}
         <!-- SVG Speech Bubble - single path for seamless border around bubble+tail -->
         <!-- Solo conductor gets taller bubble (80px) for text wrapping -->
         <!-- bubbleHeight already computed above for positioning -->
@@ -1868,6 +1960,7 @@
             left: {bubbleLeft}px;
             top: {clampedBubbleTop}px;
             z-index: {isHovered ? 5000 : baseZIndex};
+            {bubbleRotation ? `transform: rotate(${bubbleRotation}deg);` : ''}
           "
           on:mouseenter={() => canExpand && handleBubbleEnter(bot.agent.id)}
           on:mouseleave={() => canExpand && handleBubbleLeave()}
@@ -1885,8 +1978,9 @@
               d="{bubbleBelow ? pathUp : pathDown}"
               fill="{bubbleFill}"
               stroke="{bubbleStroke}"
-              stroke-width="1"
+              stroke-width="{bubbleStyleConfig.strokeWidth}"
             />
+            {@html bubbleStyleConfig.decorSVG(svgWidth, svgHeight)}
           </svg>
           <!-- Text content positioned over the SVG -->
           <div
@@ -1895,12 +1989,15 @@
                      ? 'text-amber-200'
                      : bot.agent.status === 'complete'
                        ? 'text-green-200'
-                       : 'text-[var(--bubble-text)]'}"
+                       : ''}"
             style="
               left: 12px;
               top: {bubbleBelow ? tailHeight + 6 : 6}px;
               width: {bubbleWidth - 24}px;
               max-height: {bubbleHeight - 12}px;
+              {bot.agent.status !== 'blocked' && bot.agent.status !== 'complete' ? `color: ${bubbleStyleConfig.textColor};` : ''}
+              {bubbleStyleConfig.fontFamily ? `font-family: ${bubbleStyleConfig.fontFamily};` : ''}
+              {bubbleStyleConfig.fontSizeFactor !== 1.0 ? `font-size: ${bubbleStyleConfig.fontSizeFactor}em;` : ''}
             "
           >
             <div
@@ -2087,6 +2184,7 @@
           conjureAnimation={bot.conjureAnimation}
           conjureProgress={bot.conjureProgress}
           bobble={bot.bobble}
+          agentId={bot.agent.id}
         />
       </div>
 
@@ -2120,6 +2218,38 @@
           {bot.reactionEmoji}
         </div>
       {/if}
+    </div>
+  {/each}
+
+  <!-- Interaction overlays (emojis during bot-to-bot interactions) -->
+  {#each interactionOverlays as overlay}
+    <div
+      class="absolute pointer-events-none text-lg"
+      style="
+        left: {overlay.x}px;
+        top: {overlay.y}px;
+        opacity: {overlay.opacity};
+        transform: translate(-50%, -50%) scale({overlay.scale});
+        z-index: 3000;
+      "
+    >
+      {overlay.emoji}
+    </div>
+  {/each}
+
+  <!-- Interaction particles (sparkles after interactions complete) -->
+  {#each interactionParticleItems as particle}
+    <div
+      class="absolute pointer-events-none text-sm"
+      style="
+        left: {particle.x}px;
+        top: {particle.y}px;
+        opacity: {particle.opacity};
+        transform: translate(-50%, -50%) scale({particle.scale});
+        z-index: 3000;
+      "
+    >
+      {particle.emoji}
     </div>
   {/each}
 
