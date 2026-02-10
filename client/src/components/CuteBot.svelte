@@ -2,6 +2,13 @@
   import { onMount } from 'svelte';
   import type { AgentStatus } from '../../../shared/types';
   import { prefersReducedMotion } from '../stores/state';
+  import {
+    selectBotAppearance, getAnchors, getBodyShape, getHeadData,
+    getAntennaSVG, getLeftArmSVG, getRightArmSVG, getLegsSVG,
+    getEyesSVG, getMouthSVG, selectAccessories, getAccessorySVG,
+    type BotAppearance, type Anchors, type HeadData, type ShapeDescriptor,
+    type EyeStatus, type MouthStatus,
+  } from '../lib/botParts';
 
   export let status: AgentStatus;
   export let isTired: boolean = false;
@@ -11,6 +18,7 @@
   export let conjuring: boolean = false; // Is this bot currently being conjured?
   export let conjureAnimation: 'classic' | 'teleport' | 'factory' | 'inflate' | 'pixel' | 'spring' | 'assembly' = 'classic';
   export let bobble: boolean = false; // Trigger bobble animation (squash/stretch)
+  export let agentId: string = ''; // Unique ID for deterministic appearance generation
 
   // Idle animations — any bot can play when idle
   type IdleAnimation =
@@ -216,206 +224,225 @@
             : '#22c55e'; // green for complete - all bots
 
   $: eyeColor = isTired ? '#999' : '#fff';
+
+  // --- Composable appearance ---
+  $: appearance = selectBotAppearance(agentId);
+  $: anchors = getAnchors(appearance.body);
+  $: bodyShape = getBodyShape(appearance.body);
+  $: headData = getHeadData(appearance.head, anchors);
+  $: accessories = selectAccessories(agentId);
+
+  // Antenna position (adjusted for head)
+  $: antennaBaseY = anchors.antennaBaseY + headData.antennaOffsetY;
+
+  // Conjure class helper
+  $: conjClass = conjuring ? `conjure-${conjureAnimation}` : '';
+
+  // Eye status mapping
+  $: eyeStatus = ((): EyeStatus => {
+    if (isTired) return 'tired';
+    if (idleEyesClosed) return 'sleeping';
+    if (status === 'blocked') return 'blocked';
+    if (status === 'error') return 'error';
+    if (status === 'rate_limited') return 'rate_limited';
+    if (status === 'server_running') return 'server_running';
+    if (status === 'complete') return 'complete';
+    if (isIdle) return 'idle';
+    return 'normal';
+  })();
+
+  // Mouth status mapping
+  $: mouthStatus = ((): MouthStatus => {
+    if (status === 'blocked') return 'blocked';
+    if (status === 'error') return 'error';
+    if (status === 'rate_limited') return 'rate_limited';
+    if (status === 'server_running') return 'server_running';
+    if (status === 'complete') return 'complete';
+    if (isSleeping) return 'sleeping';
+    if (isTired || isIdle) return 'idle';
+    return 'normal';
+  })();
+
+  // Precomputed SVG fragments (reactive)
+  $: antennaSVG = getAntennaSVG(
+    appearance.antenna,
+    anchors.antennaBaseX, antennaBaseY,
+    bodyColor,
+    status === 'working' && !$prefersReducedMotion ? 'animate-pulse' : '',
+    $prefersReducedMotion ? '' : 'animate-glow'
+  );
+  $: eyesSVG = getEyesSVG(
+    appearance.eyes, eyeStatus,
+    anchors.eyeLeftX, anchors.eyeLeftY,
+    anchors.eyeRightX, anchors.eyeRightY,
+    anchors.eyeScale, eyeColor
+  );
+  $: mouthSVG = getMouthSVG(appearance.mouth, mouthStatus, anchors.mouthX, anchors.mouthY);
+  $: leftArmSVG = getLeftArmSVG(appearance.arms, anchors.armLeftX, anchors.armLeftY, bodyColor);
+  $: rightArmSVG = getRightArmSVG(appearance.arms, anchors.armRightX, anchors.armRightY, bodyColor);
+  $: legsSVG = getLegsSVG(
+    appearance.legs,
+    anchors.legLeftX, anchors.legLeftY,
+    anchors.legRightX, anchors.legRightY,
+    pantsColor
+  );
+  $: accessorySVGs = accessories.map(a => getAccessorySVG(a, anchors, bodyColor));
 </script>
 
 <div class="inline-flex items-center justify-center {sizeClasses[size]} {animationClass} {bobble && !$prefersReducedMotion ? 'animate-bobble' : ''}">
   <svg viewBox="0 0 100 100" class="w-full h-full" aria-hidden="true">
-    <!-- Body -->
-    <rect
-      x="20" y="30" width="60" height="50" rx="10"
-      fill={bodyColor}
-      class="bot-part bot-body transition-colors duration-300 {conjuring ? `conjure-${conjureAnimation}` : ''}"
-      style="--part-delay: 0s;"
-    />
+    <!-- Back accessories (cape, backpack, wings, jetpack) rendered behind body -->
+    {#each accessorySVGs as accSVG, i}
+      {#if accessories[i]?.slot === 'back'}
+        <g class="bot-accessory">
+          {@html accSVG}
+        </g>
+      {/if}
+    {/each}
 
-    <!-- Antenna -->
-    <g class="bot-part bot-antenna {conjuring ? `conjure-${conjureAnimation}` : ''}" style="--part-delay: 0.3s;">
-      <line x1="50" y1="30" x2="50" y2="15" stroke={bodyColor} stroke-width="4" stroke-linecap="round" />
-      <!-- Glowing antenna light - outer glow -->
-      <circle cx="50" cy="12" r="8" fill={bodyColor} class={$prefersReducedMotion ? '' : 'animate-glow'} />
-      <!-- Inner solid light -->
-      <circle cx="50" cy="12" r="5" fill={bodyColor} class={status === 'working' && !$prefersReducedMotion ? 'animate-pulse' : ''} />
-      <!-- Highlight -->
-      <circle cx="48" cy="10" r="2" fill="white" opacity="0.7" />
+    <!-- Legs (composable style) -->
+    <g class="bot-part bot-legs {conjClass}" style="--part-delay: 0.1s;">
+      {@html legsSVG}
     </g>
 
-    <!-- Eyes -->
-    <g class="bot-part bot-eyes {conjuring ? `conjure-${conjureAnimation}` : ''}" style="--part-delay: 0.4s;">
-      {#if isTired}
-        <!-- Tired eyes (droopy) -->
-        <line x1="32" y1="50" x2="42" y2="52" stroke={eyeColor} stroke-width="3" stroke-linecap="round" />
-        <line x1="58" y1="52" x2="68" y2="50" stroke={eyeColor} stroke-width="3" stroke-linecap="round" />
-      {:else if idleEyesClosed}
-        <!-- Closed/sleeping eyes - peaceful -->
-        <line x1="32" y1="50" x2="42" y2="50" stroke={eyeColor} stroke-width="3" stroke-linecap="round" />
-        <line x1="58" y1="50" x2="68" y2="50" stroke={eyeColor} stroke-width="3" stroke-linecap="round" />
-      {:else if status === 'blocked'}
-        <!-- Wide open worried eyes -->
-        <circle cx="37" cy="50" r="8" fill={eyeColor} />
-        <circle cx="63" cy="50" r="8" fill={eyeColor} />
-        <circle cx="37" cy="50" r="4" fill="#333" />
-        <circle cx="63" cy="50" r="4" fill="#333" />
-      {:else if status === 'error'}
-        <!-- Confused eyes - asymmetric, one higher than other -->
-        <circle cx="37" cy="48" r="6" fill={eyeColor} />
-        <circle cx="63" cy="52" r="6" fill={eyeColor} />
-        <circle cx="37" cy="48" r="3" fill="#333" />
-        <circle cx="63" cy="52" r="3" fill="#333" />
-      {:else if status === 'rate_limited'}
-        <!-- Calm/content eyes - waiting patiently (like coffee break) -->
-        <ellipse cx="37" cy="50" rx="5" ry="4" fill={eyeColor} />
-        <ellipse cx="63" cy="50" rx="5" ry="4" fill={eyeColor} />
-        <circle cx="38" cy="51" r="2" fill="#333" />
-        <circle cx="64" cy="51" r="2" fill="#333" />
-      {:else if status === 'server_running'}
-        <!-- Focused eyes with slight glow - server is humming -->
-        <circle cx="37" cy="50" r="6" fill={eyeColor} />
-        <circle cx="63" cy="50" r="6" fill={eyeColor} />
-        <circle cx="38" cy="50" r="3" fill="#10b981" />
-        <circle cx="64" cy="50" r="3" fill="#10b981" />
-      {:else if status === 'complete'}
-        <!-- Happy closed eyes -->
-        <path d="M 32 50 Q 37 45 42 50" stroke={eyeColor} stroke-width="3" fill="none" stroke-linecap="round" />
-        <path d="M 58 50 Q 63 45 68 50" stroke={eyeColor} stroke-width="3" fill="none" stroke-linecap="round" />
-      {:else if isIdle}
-        <!-- Relaxed dreamy eyes for idle state - soft and content -->
-        <ellipse cx="37" cy="50" rx="6" ry="5" fill={eyeColor} />
-        <ellipse cx="63" cy="50" rx="6" ry="5" fill={eyeColor} />
-        <!-- Larger, softer pupils looking slightly down -->
-        <ellipse cx="37" cy="51" rx="3.5" ry="3" fill="#444" />
-        <ellipse cx="63" cy="51" rx="3.5" ry="3" fill="#444" />
-        <!-- Eye highlights for life -->
-        <circle cx="35" cy="49" r="1.5" fill="rgba(255,255,255,0.6)" />
-        <circle cx="61" cy="49" r="1.5" fill="rgba(255,255,255,0.6)" />
-      {:else}
-        <!-- Normal focused eyes -->
-        <circle cx="37" cy="50" r="6" fill={eyeColor} />
-        <circle cx="63" cy="50" r="6" fill={eyeColor} />
-        <circle cx="38" cy="51" r="3" fill="#333" />
-        <circle cx="64" cy="51" r="3" fill="#333" />
+    <!-- Body (composable shape) -->
+    <g class="bot-part bot-body {conjClass}" style="--part-delay: 0s;">
+      {#if bodyShape.type === 'rect'}
+        <rect x={bodyShape.x} y={bodyShape.y} width={bodyShape.w} height={bodyShape.h} rx={bodyShape.rx}
+          fill={bodyColor} style="transition: fill 300ms" />
+      {:else if bodyShape.type === 'ellipse'}
+        <ellipse cx={bodyShape.cx} cy={bodyShape.cy} rx={bodyShape.rx} ry={bodyShape.ry}
+          fill={bodyColor} style="transition: fill 300ms" />
+      {:else if bodyShape.type === 'path'}
+        <path d={bodyShape.d}
+          fill={bodyColor} style="transition: fill 300ms" />
+      {:else if bodyShape.type === 'polygon'}
+        <polygon points={bodyShape.points}
+          fill={bodyColor} style="transition: fill 300ms" />
       {/if}
     </g>
 
-    <!-- Mouth -->
-    <g class="bot-part bot-mouth {conjuring ? `conjure-${conjureAnimation}` : ''}" style="--part-delay: 0.45s;">
-      {#if status === 'blocked'}
-        <!-- Worried open mouth -->
-        <ellipse cx="50" cy="68" rx="8" ry="6" fill="#333" />
-      {:else if status === 'error'}
-        <!-- Confused mouth - small puzzled "o" -->
-        <ellipse cx="50" cy="68" rx="5" ry="6" fill="none" stroke="#333" stroke-width="2.5" />
-        <!-- Optional: Add small question mark accessory -->
-        <text x="73" y="42" font-size="10" fill="#a855f7" opacity="0.6">?</text>
-      {:else if status === 'rate_limited'}
-        <!-- Content smile - taking a break -->
-        <path d="M 42 66 Q 50 70 58 66" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" />
-      {:else if status === 'server_running'}
-        <!-- Satisfied smile - server humming along -->
-        <path d="M 40 65 Q 50 71 60 65" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" />
-      {:else if status === 'complete'}
-        <!-- Big smile -->
-        <path d="M 35 65 Q 50 78 65 65" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" />
-      {:else if isSleeping}
-        <!-- Peaceful sleeping smile - content and dreaming -->
-        <path d="M 42 65 Q 50 70 58 65" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" />
-      {:else if isTired || isIdle}
-        <!-- Small neutral/content mouth -->
-        <line x1="42" y1="68" x2="58" y2="68" stroke="#333" stroke-width="3" stroke-linecap="round" />
-      {:else}
-        <!-- Determined smile -->
-        <path d="M 40 65 Q 50 72 60 65" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" />
-      {/if}
+    <!-- Head (if separate from body) -->
+    {#if headData.shape}
+      <g class="bot-part bot-head {conjClass}" style="--part-delay: 0.05s;">
+        {#if headData.shape.type === 'ellipse'}
+          <ellipse cx={headData.shape.cx} cy={headData.shape.cy} rx={headData.shape.rx} ry={headData.shape.ry}
+            fill={bodyColor} style="transition: fill 300ms" />
+        {:else if headData.shape.type === 'rect'}
+          <rect x={headData.shape.x} y={headData.shape.y} width={headData.shape.w} height={headData.shape.h} rx={headData.shape.rx}
+            fill={bodyColor} style="transition: fill 300ms" />
+        {:else if headData.shape.type === 'path'}
+          <path d={headData.shape.d}
+            fill={bodyColor} style="transition: fill 300ms" />
+        {/if}
+      </g>
+    {/if}
+
+    <!-- Antenna (composable style) -->
+    <g class="bot-part bot-antenna {conjClass}" style="--part-delay: 0.3s;">
+      {@html antennaSVG}
     </g>
+
+    <!-- Eyes (composable style + status-aware) -->
+    <g class="bot-part bot-eyes {conjClass}" style="--part-delay: 0.4s;">
+      {@html eyesSVG}
+    </g>
+
+    <!-- Eye accessories (glasses, goggles, etc.) rendered over eyes -->
+    {#each accessorySVGs as accSVG, i}
+      {#if accessories[i]?.slot === 'eyes'}
+        <g class="bot-accessory">
+          {@html accSVG}
+        </g>
+      {/if}
+    {/each}
+
+    <!-- Mouth (composable style + status-aware) -->
+    <g class="bot-part bot-mouth {conjClass}" style="--part-delay: 0.45s;">
+      {@html mouthSVG}
+    </g>
+
+    <!-- Neck accessories (scarf, bowtie, etc.) -->
+    {#each accessorySVGs as accSVG, i}
+      {#if accessories[i]?.slot === 'neck'}
+        <g class="bot-accessory">
+          {@html accSVG}
+        </g>
+      {/if}
+    {/each}
 
     <!-- Arm holding object (right side) -->
-    <g class="bot-part bot-arm-right {conjuring ? `conjure-${conjureAnimation}` : ''} {status === 'working' && !$prefersReducedMotion ? 'animate-wave' : ''}" style="--part-delay: 0.2s;">
-      <!-- Arm -->
-      <rect x="78" y="48" width="14" height="6" rx="3" fill={bodyColor} />
+    <g class="bot-part bot-arm-right {conjClass} {status === 'working' && !$prefersReducedMotion ? 'animate-wave' : ''}" style="--part-delay: 0.2s;">
+      <!-- Arm (composable style) -->
+      {@html rightArmSVG}
 
-      <!-- Role-specific held object -->
-      <g class="bot-part bot-tool {conjuring ? `conjure-${conjureAnimation}` : ''}" style="--part-delay: 0.5s;">
+      <!-- Role-specific held object (FIXED per role - identity anchor) -->
+      <g class="bot-part bot-tool {conjClass}" style="--part-delay: 0.5s;">
       {#if roleCategory === 'conductor'}
-        <!-- Baton -->
         <line x1="90" y1="42" x2="98" y2="30" stroke="#e5e5e5" stroke-width="3" stroke-linecap="round" />
         <circle cx="99" cy="28" r="3" fill="#ffd700" />
       {:else if roleCategory === 'architect'}
-        <!-- Compass/protractor -->
         <path d="M 90 38 L 95 48 L 100 38 Z" fill="none" stroke="#60a5fa" stroke-width="2" />
         <line x1="95" y1="48" x2="95" y2="35" stroke="#60a5fa" stroke-width="2" />
       {:else if roleCategory === 'executor'}
-        <!-- Pipe wrench (monkey wrench) - red handle, silver jaw -->
-        <rect x="88" y="38" width="5" height="14" rx="1" fill="#991b1b" /> <!-- Red handle -->
-        <rect x="88" y="50" width="5" height="3" rx="1" fill="#7f1d1d" /> <!-- Handle end -->
-        <rect x="89" y="42" width="3" height="4" fill="#fbbf24" /> <!-- Gold knurled grip -->
-        <rect x="87" y="32" width="7" height="7" rx="1" fill="#6b7280" /> <!-- Jaw body -->
-        <path d="M 87 32 L 85 28 L 88 28 L 88 32 Z" fill="#9ca3af" /> <!-- Upper jaw -->
-        <path d="M 94 32 L 96 30 L 94 28 L 92 32 Z" fill="#9ca3af" /> <!-- Lower jaw -->
+        <rect x="88" y="38" width="5" height="14" rx="1" fill="#991b1b" />
+        <rect x="88" y="50" width="5" height="3" rx="1" fill="#7f1d1d" />
+        <rect x="89" y="42" width="3" height="4" fill="#fbbf24" />
+        <rect x="87" y="32" width="7" height="7" rx="1" fill="#6b7280" />
+        <path d="M 87 32 L 85 28 L 88 28 L 88 32 Z" fill="#9ca3af" />
+        <path d="M 94 32 L 96 30 L 94 28 L 92 32 Z" fill="#9ca3af" />
       {:else if roleCategory === 'explorer'}
-        <!-- Magnifying glass -->
         <circle cx="94" cy="36" r="6" fill="none" stroke="#a78bfa" stroke-width="2" />
         <line x1="98" y1="41" x2="102" y2="48" stroke="#a78bfa" stroke-width="3" stroke-linecap="round" />
       {:else if roleCategory === 'designer'}
-        <!-- Paintbrush -->
         <rect x="90" y="30" width="3" height="14" fill="#92400e" />
         <ellipse cx="91.5" cy="28" rx="4" ry="5" fill="#f472b6" />
       {:else if roleCategory === 'writer'}
-        <!-- Pencil -->
         <rect x="89" y="32" width="4" height="14" fill="#fbbf24" />
         <polygon points="89,46 91,52 93,46" fill="#f97316" />
         <rect x="89" y="32" width="4" height="3" fill="#fde68a" />
       {:else if roleCategory === 'researcher'}
-        <!-- Book -->
         <rect x="87" y="34" width="10" height="12" rx="1" fill="#3b82f6" />
         <line x1="92" y1="34" x2="92" y2="46" stroke="#1e40af" stroke-width="1" />
         <rect x="88" y="36" width="3" height="1" fill="#bfdbfe" />
         <rect x="88" y="39" width="3" height="1" fill="#bfdbfe" />
       {:else if roleCategory === 'planner'}
-        <!-- Clipboard -->
         <rect x="87" y="32" width="10" height="14" rx="1" fill="#d1d5db" />
         <rect x="90" y="30" width="4" height="3" rx="1" fill="#6b7280" />
         <line x1="89" y1="37" x2="95" y2="37" stroke="#374151" stroke-width="1" />
         <line x1="89" y1="40" x2="95" y2="40" stroke="#374151" stroke-width="1" />
         <line x1="89" y1="43" x2="93" y2="43" stroke="#374151" stroke-width="1" />
       {:else if roleCategory === 'critic'}
-        <!-- Red pen with checkmark -->
         <rect x="90" y="30" width="3" height="16" fill="#ef4444" />
         <polygon points="90,46 91.5,50 93,46" fill="#dc2626" />
         <path d="M 96 36 L 98 40 L 103 32" stroke="#22c55e" stroke-width="2" fill="none" />
       {:else if roleCategory === 'analyst'}
-        <!-- Chart -->
         <rect x="86" y="32" width="12" height="10" fill="#1e293b" stroke="#475569" stroke-width="1" />
         <rect x="88" y="38" width="2" height="3" fill="#22c55e" />
         <rect x="91" y="35" width="2" height="6" fill="#3b82f6" />
         <rect x="94" y="36" width="2" height="5" fill="#f59e0b" />
       {:else if roleCategory === 'tester'}
-        <!-- Bug net -->
         <line x1="90" y1="48" x2="95" y2="30" stroke="#92400e" stroke-width="2" />
         <ellipse cx="95" cy="28" rx="6" ry="5" fill="none" stroke="#a3e635" stroke-width="2" />
         <path d="M 91 25 Q 95 32 99 25" stroke="#a3e635" stroke-width="1" fill="none" />
       {:else if roleCategory === 'vision'}
-        <!-- Camera/eye -->
         <rect x="86" y="34" width="14" height="10" rx="2" fill="#374151" />
         <circle cx="93" cy="39" r="4" fill="#1f2937" stroke="#60a5fa" stroke-width="1" />
         <circle cx="93" cy="39" r="2" fill="#3b82f6" />
       {:else if roleCategory === 'scientist'}
-        <!-- Flask -->
         <path d="M 89 32 L 89 38 L 85 48 L 97 48 L 93 38 L 93 32 Z" fill="#dbeafe" stroke="#3b82f6" stroke-width="1" />
         <rect x="88" y="30" width="6" height="3" fill="#6b7280" />
         <ellipse cx="91" cy="44" rx="4" ry="2" fill="#a78bfa" opacity="0.6" />
       {:else if roleCategory === 'security'}
-        <!-- Shield -->
         <path d="M 91 30 L 85 34 L 85 42 L 91 48 L 97 42 L 97 34 Z" fill="#22c55e" stroke="#166534" stroke-width="1" />
         <path d="M 91 36 L 89 39 L 91 42 L 93 39 Z" fill="#166534" />
       {:else if roleCategory === 'builder'}
-        <!-- Hammer -->
         <rect x="90" y="34" width="3" height="14" fill="#92400e" />
         <rect x="86" y="30" width="10" height="6" rx="1" fill="#6b7280" />
       {:else if roleCategory === 'background'}
-        <!-- Terminal/gear for background tasks -->
         <rect x="85" y="32" width="14" height="12" rx="2" fill="#1f2937" stroke="#10b981" stroke-width="1" />
         <text x="92" y="41" font-size="8" fill="#10b981" text-anchor="middle" font-family="monospace">&gt;_</text>
       {:else}
-        <!-- Default: pipe wrench -->
         <rect x="88" y="38" width="5" height="14" rx="1" fill="#991b1b" />
         <rect x="89" y="42" width="3" height="4" fill="#fbbf24" />
         <rect x="87" y="32" width="7" height="7" rx="1" fill="#6b7280" />
@@ -423,27 +450,19 @@
       </g>
     </g>
 
-    <!-- Left arm (no object, just supporting) -->
-    <rect
-      x="8" y="50" width="14" height="6" rx="3"
-      fill={bodyColor}
-      class="bot-part bot-arm-left {conjuring ? `conjure-${conjureAnimation}` : ''}"
-      style="--part-delay: 0.2s;"
-    />
+    <!-- Left arm (composable style) -->
+    <g class="bot-part bot-arm-left {conjClass}" style="--part-delay: 0.2s;">
+      {@html leftArmSVG}
+    </g>
 
-    <!-- Legs (pants colored by role) -->
-    <rect
-      x="30" y="78" width="10" height="12" rx="3"
-      fill={pantsColor}
-      class="bot-part bot-leg-left {conjuring ? `conjure-${conjureAnimation}` : ''}"
-      style="--part-delay: 0.1s;"
-    />
-    <rect
-      x="60" y="78" width="10" height="12" rx="3"
-      fill={pantsColor}
-      class="bot-part bot-leg-right {conjuring ? `conjure-${conjureAnimation}` : ''}"
-      style="--part-delay: 0.1s;"
-    />
+    <!-- Head accessories (hats, crowns, etc.) rendered on top -->
+    {#each accessorySVGs as accSVG, i}
+      {#if accessories[i]?.slot === 'head'}
+        <g class="bot-accessory">
+          {@html accSVG}
+        </g>
+      {/if}
+    {/each}
   </svg>
 
   <!-- Idle Animation Overlays -->
