@@ -3,7 +3,7 @@
  *
  * Each biome maps to a bubble style. Status can override the style
  * (e.g., planning always uses thought-cloud). All styles maintain
- * readability with ≥4.5:1 contrast ratio.
+ * readability with ≥4.5:1 contrast ratio (verified Feb 2026).
  */
 
 export type BubbleStyleId = 'default' | 'handwritten' | 'thought-cloud' | 'post-it' | 'terminal' | 'scroll';

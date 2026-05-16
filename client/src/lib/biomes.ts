@@ -83,7 +83,7 @@ const BIOMES: BiomeDef[] = [
   {
     id: 'treehouse', name: 'Treehouse',
     bubbleStyle: 'handwritten', accentColor: '#84cc16',
-    isDark: false, creatures: ['bird', 'squirrel'],
+    isDark: true, creatures: ['bird', 'squirrel'],
     skyGradient: ['#365314', '#1a2e05'],
     groundColor: '#92400e',
   },
@@ -111,7 +111,7 @@ const BIOMES: BiomeDef[] = [
   {
     id: 'arctic', name: 'Arctic',
     bubbleStyle: 'default', accentColor: '#67e8f9',
-    isDark: false, creatures: ['snowflake', 'penguin'],
+    isDark: true, creatures: ['snowflake', 'penguin'],
     skyGradient: ['#0c4a6e', '#164e63'],
     groundColor: '#e0f2fe',
   },

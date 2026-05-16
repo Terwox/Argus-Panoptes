@@ -28,6 +28,14 @@ hook-debug.log
 
 # Visual testing screenshots (local only, not .sisyphus which is tracked)
 compact-mode-test.png
+.sisyphus/contrast-fix.png
+.sisyphus/settled.png
+.sisyphus/visual-variety-test.png
+.sisyphus/visual-tests/diff-*.png
+.sisyphus/visual-tests/snapshot-*.png
+
+# Local hook backups
+hooks/*.backup-hooks-disabled-*
 
 # Spec documents (local planning artifacts, not source code)
 argus-panoptes-ui-spec-1-24-25.md

@@ -1984,18 +1984,17 @@
           </svg>
           <!-- Text content positioned over the SVG -->
           <div
-            class="absolute {isConductor ? 'text-base' : isPrimaryBlocked ? 'text-sm' : bubbleTextClass} overflow-hidden transition-all duration-200
-                   {bot.agent.status === 'blocked'
-                     ? 'text-amber-200'
-                     : bot.agent.status === 'complete'
-                       ? 'text-green-200'
-                       : ''}"
+            class="absolute {isConductor ? 'text-base' : isPrimaryBlocked ? 'text-sm' : bubbleTextClass} overflow-hidden transition-all duration-200"
             style="
               left: 12px;
               top: {bubbleBelow ? tailHeight + 6 : 6}px;
               width: {bubbleWidth - 24}px;
               max-height: {bubbleHeight - 12}px;
-              {bot.agent.status !== 'blocked' && bot.agent.status !== 'complete' ? `color: ${bubbleStyleConfig.textColor};` : ''}
+              color: {bot.agent.status === 'blocked'
+                ? (biome.isDark ? '#fde68a' : '#92400e')
+                : bot.agent.status === 'complete'
+                  ? (biome.isDark ? '#bbf7d0' : '#166534')
+                  : bubbleStyleConfig.textColor};
               {bubbleStyleConfig.fontFamily ? `font-family: ${bubbleStyleConfig.fontFamily};` : ''}
               {bubbleStyleConfig.fontSizeFactor !== 1.0 ? `font-size: ${bubbleStyleConfig.fontSizeFactor}em;` : ''}
             "
@@ -2023,7 +2022,7 @@
         max-width: {thought.width}px;
       "
     >
-      <div class="text-xs text-white/50 whitespace-nowrap overflow-hidden text-ellipsis">
+      <div class="text-xs whitespace-nowrap overflow-hidden text-ellipsis" style="color: {biome.isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)'}">
         {thought.text}
       </div>
     </div>
@@ -2196,7 +2195,7 @@
         class:text-amber-300={bot.isRelocating}
         class:font-medium={bot.spawning || bot.isRelocating}
         class:scale-110={bot.spawning}
-        style="transform: translateX(-50%) scaleX({bot.direction === 'left' ? -1 : 1}); {!bot.spawning && !bot.isRelocating ? 'color: var(--text-secondary)' : ''}"
+        style="transform: translateX(-50%) scaleX({bot.direction === 'left' ? -1 : 1}); text-shadow: {biome.isDark ? '0 1px 3px rgba(0,0,0,0.8)' : '0 1px 3px rgba(255,255,255,0.8)'}; {!bot.spawning && !bot.isRelocating ? `color: ${biome.isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)'}` : ''}"
       >
         {bot.agent.type === 'main'
           ? (currentConductorCount > 1 ? `conductor ${effectiveConductorIndex + 1}` : 'conductor')
