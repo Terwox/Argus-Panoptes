@@ -103,7 +103,7 @@ export function normalizeOpenClawEntry(raw: unknown): NormalizedEntry | null {
     return {
       type: mappedRole as 'user' | 'assistant' | 'system',
       message: {
-        content: normalizedContent as NormalizedEntry['message']['content'],
+        content: normalizedContent as NonNullable<NormalizedEntry['message']>['content'],
       },
     };
   }

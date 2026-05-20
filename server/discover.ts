@@ -843,12 +843,7 @@ function extractTodos(transcriptPath: string): TodosResult | null {
     // Read from end to find the most recent TodoWrite call
     for (let i = lines.length - 1; i >= 0; i--) {
       try {
-        const rawEntry = JSON.parse(lines[i]);
-
-        // Normalize entry based on source format
-        const entry = isOpenClaw
-          ? parseTranscriptEntry(rawEntry, 'openclaw')
-          : (rawEntry as TranscriptEntry);
+        const entry = parseTranscriptEntry(lines[i], isOpenClaw);
 
         if (!entry) continue;
 

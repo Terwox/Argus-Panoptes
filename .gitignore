@@ -26,13 +26,9 @@ hook-debug.log
 # oh-my-claudecode plugin state (session-specific, not shareable)
 .omc/
 
-# Visual testing screenshots (local only, not .sisyphus which is tracked)
+# Local runtime, planning, and visual testing artifacts
+.sisyphus/
 compact-mode-test.png
-.sisyphus/contrast-fix.png
-.sisyphus/settled.png
-.sisyphus/visual-variety-test.png
-.sisyphus/visual-tests/diff-*.png
-.sisyphus/visual-tests/snapshot-*.png
 
 # Local hook backups
 hooks/*.backup-hooks-disabled-*
@@ -42,6 +38,7 @@ argus-panoptes-ui-spec-1-24-25.md
 
 # Test/utility files (development only)
 client/src/test-idle-animations.html
+client/public/test-error-bot.html
 client/src/lib/toastStore.ts
 scripts/generate-phrases.py
 scripts/screenshot-detailed.mjs
