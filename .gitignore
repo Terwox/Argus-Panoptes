@@ -48,3 +48,6 @@ NUL
 
 # Stray files (accidentally created)
 --no-demo
+
+# OMX local runtime artifacts
+.omx/
