@@ -2,571 +2,258 @@
 
 ## Overview
 
-Argus is a real-time supervision dashboard for monitoring multiple concurrent Claude Code / Sisyphus sessions across projects. Named for Argus Panoptes, the hundred-eyed giant of Greek mythology.
+Argus is a calm, real-time supervision dashboard for concurrent agentic coding sessions. It integrates with Claude Code through hooks and transcript polling, and with OpenClaw through transcript discovery and normalization.
 
-**ꙮ** — The multiocular O (U+A66E) from Old Cyrillic, used in a single manuscript passage describing many-eyed seraphim. The official glyph of this project.
+**ꙮ** — The multiocular O (U+A66E) from Old Cyrillic, used in a manuscript passage describing many-eyed seraphim, is the project's official glyph.
 
-**Primary goal:** Help a developer running multiple parallel agentic coding sessions triage their attention. "Which blocked agent needs me? What's the question? Bounce me there."
+**Primary goal:** Help a developer triage attention across parallel sessions: "Which agent needs me? What's the question? Bounce me there."
 
-**This is NOT:**
-- A "do everything from here" dashboard
-- An event log / timeline viewer
-- A replacement for the terminal
+**Argus is:**
 
-**This IS:**
 - An attention router
-- A state-based view (what's blocked NOW, not what happened)
-- A cognitive load reducer for concurrent agentic work
+- A state-based view of what is happening now
+- A cognitive-load reducer for concurrent agentic work
 
-## User Story
+**Argus is not:**
 
-I have 2-5 Sisyphus sessions running in parallel across different projects. Each session may spawn subagents. When an agent needs human input, I want to:
+- A replacement for the terminal or editor
+- An event log, transcript browser, or performance profiler
+- A place to answer an agent directly
 
-1. See at a glance which projects have blocked agents
-2. See the question/blocker for each
-3. Click to bounce to the correct VS Code window/terminal
-4. Answer the question there (not in the dashboard)
-5. Return to dashboard to see what's next
+## User Loop
 
-## Architecture
+A developer may have several sessions running across different projects, with multiple conductors or subagents in each project. The intended loop is:
 
-### High-Level
+1. See which projects are working, idle, blocked, rate-limited, running a server, or in error.
+2. Read the question or activity that matters.
+3. Open the corresponding project in VS Code.
+4. Answer or intervene in the original terminal.
+5. Return to Argus and continue triage.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Sisyphus Sessions (multiple)                                   │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐                           │
-│  │Project A│ │Project B│ │Project C│                           │
-│  │Sisyphus │ │Sisyphus │ │Sisyphus │                           │
-│  │ └─sub1  │ │ └─sub1  │ │ └─sub1  │                           │
-│  │ └─sub2  │ │         │ │ └─sub2  │                           │
-│  └────┬────┘ └────┬────┘ └────┬────┘                           │
-│       │           │           │                                 │
-│       ▼           ▼           ▼                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Event Emitter (hooks or custom)                        │   │
-│  │  - session_start, session_end                           │   │
-│  │  - agent_spawn, agent_complete                          │   │
-│  │  - agent_blocked (question), agent_unblocked            │   │
-│  └──────────────────────────┬──────────────────────────────┘   │
-└─────────────────────────────┼───────────────────────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │  Argus Server   │
-                    │  (local, persistent)
-                    │  - receives events│
-                    │  - maintains state│
-                    │  - serves UI      │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │  Argus Web UI   │
-                    │  (browser)      │
-                    │  - project cards│
-                    │  - priority queue│
-                    │  - bounce links │
-                    └─────────────────┘
+This loop remains the product contract. Argus deliberately routes attention instead of absorbing the work surface.
+
+## Current Architecture
+
+The server exposes Hypertext Transfer Protocol (HTTP) state endpoints and a WebSocket update channel.
+
+```text
+┌────────────────────────────────────────────────────────────────────┐
+│ Event and discovery sources                                        │
+│                                                                    │
+│ Claude Code hooks ───────────────┐                                 │
+│ Claude Code transcript polling ──┼──────┐                          │
+│ OpenClaw transcript polling ─────┘      │                          │
+└─────────────────────────────────────────┼──────────────────────────┘
+                                          ▼
+                              ┌────────────────────────┐
+                              │ Argus server           │
+                              │                        │
+                              │ event normalization    │
+                              │ in-memory state        │
+                              │ activity discovery     │
+                              │ HTTP + WebSocket       │
+                              └───────────┬────────────┘
+                                          │
+                         ┌────────────────┴────────────────┐
+                         ▼                                 ▼
+              ┌─────────────────────┐          ┌─────────────────────┐
+              │ Browser client      │          │ VS Code extension   │
+              │ Svelte + Vite       │          │ bundled webview     │
+              └─────────────────────┘          └─────────────────────┘
 ```
 
 ### Components
 
-1. **Event Source** (investigation needed)
-   - Either: Extend Sisyphus to emit structured events
-   - Or: Hook into Claude Code's native hook system
-   - Or: Both (sisyphus wraps claude code hooks with higher-level semantics)
-
-2. **Argus Server** (Node/Bun, runs locally)
-   - HTTP endpoint to receive events
-   - WebSocket to push state updates to UI
-   - In-memory state (SQLite optional for history, not MVP)
-   - Polls less aggressively when browser tab unfocused
-
-3. **Argus UI** (Web, opens in browser)
-   - Shows project cards in priority-queue layout
-   - Blocked projects float to upper-left
-   - Click to bounce to VS Code
-
-## Investigation Required: Event Source
-
-Before building, Claude Code needs to investigate:
-
-### Questions about oh-my-claude-sisyphus:
-
-1. **Does sisyphus currently emit events?** 
-   - Check for any logging, webhook, or file-based event system
-   - Look for hooks configuration
-
-2. **How does sisyphus track sessions?**
-   - Is there a session ID?
-   - Is the project path stored?
-   - Is the original task/goal stored anywhere?
-
-3. **How does sisyphus spawn subagents?**
-   - Does it use Claude Code's native subagent system?
-   - Can we intercept subagent creation?
-
-4. **What does a "blocked" state look like?**
-   - Is there a `Notification` hook firing?
-   - Is there a prompt waiting for user input?
-   - How do we detect "agent is waiting for human"?
-
-### Questions about Claude Code hooks:
-
-1. **Which hooks fire when an agent needs user input?**
-   - `Notification`? `Stop`? Something else?
-
-2. **What data is available in hook payloads?**
-   - Session ID, project path, question text?
-
-3. **Can we get the current task description from hooks?**
-   - Or do we need sisyphus to emit that separately?
-
-### Investigation output:
-
-After investigation, document:
-- Event schema (what events, what fields)
-- Where events come from (sisyphus? claude code? both?)
-- What modifications to sisyphus are needed (if any)
-
-## Data Model
-
-### Project
-
-```typescript
-interface Project {
-  id: string;                    // hash of project_path
-  path: string;                  // absolute path to project folder
-  name: string;                  // folder name (display)
-  status: 'idle' | 'working' | 'blocked';
-  lastActivity: timestamp;
-  agents: Agent[];
-  blockedSince?: timestamp;      // when it entered blocked state
-}
-```
-
-### Agent
-
-```typescript
-interface Agent {
-  id: string;                    // session_id from claude code
-  type: 'main' | 'subagent';
-  name?: string;                 // subagent type: 'architect', 'planner', 'executor', etc.
-  task?: string;                 // subagent prompt / task description (truncated for display)
-  status: 'working' | 'blocked' | 'complete';
-  question?: string;             // if blocked, the question
-  spawnedAt: timestamp;
-  workingTime: number;           // ms spent working (for "tired" state later)
-}
-```
-
-### Session Modes
-
-```typescript
-interface SessionModes {
-  ralph: boolean;                // Ralph loop active (persistent until completion)
-  ultrawork: boolean;            // Ultrawork mode (max parallelism)
-  planning: boolean;             // In planning/interview mode
-}
-```
-
-**Note**: Mode detection comes from skill invocation events or session metadata. Display as badges on the main agent.
-
-### Subagent Naming
-
-Subagents should display their **type** (from `subagent_type` parameter) and **task** (from prompt):
-
-| Display | Source |
-|---------|--------|
-| `architect` | `subagent_type` from Task tool call |
-| `planner` | `subagent_type` from Task tool call |
-| `executor` | `subagent_type` from Task tool call |
-| "Analyze TTS pipeline..." | First ~40 chars of prompt, truncated |
-
-If `subagent_type` is not available, fall back to extracting from prompt or showing "subagent".
-```
-
-### Event (inbound)
-
-```typescript
-interface ArgusEvent {
-  type: 'session_start' | 'session_end' | 'agent_spawn' | 
-        'agent_blocked' | 'agent_unblocked' | 'agent_complete';
-  timestamp: timestamp;
-  projectPath: string;
-  sessionId: string;
-  agentId?: string;
-  agentName?: string;
-  task?: string;
-  question?: string;
-  metadata?: Record<string, any>;
-}
-```
-
-## API Surface
-
-### Argus Server
-
-**POST /events**
-- Receives events from sisyphus/hooks
-- Updates internal state
-- Broadcasts to WebSocket clients
-
-**GET /state**
-- Returns current state of all projects/agents
-- Used for initial load
-
-**WebSocket /ws**
-- Pushes state updates to UI
-- Clients subscribe on connect
-
-### Event Emission (from sisyphus side)
-
-Sisyphus (or hooks) should POST to Argus server:
-
-```bash
-# Example: agent blocked
-curl -X POST http://localhost:ARGUS_PORT/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "agent_blocked",
-    "timestamp": 1706000000000,
-    "projectPath": "C:/Users/james/projects/DungeonFriends",
-    "sessionId": "abc123",
-    "agentId": "subagent-xyz",
-    "agentName": "general-purpose",
-    "question": "Should I refactor the TTS pipeline or add the new voice first?"
-  }'
-```
-
-## UI Structure
-
-### Layout
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  ARGUS                                        [settings] 👁️  │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐ │
-│  │ DungeonFriends  │  │ Skullport28     │  │ Project C   │ │
-│  │ ⚠️ BLOCKED      │  │ 🔄 Working...   │  │ 💤 Idle     │ │
-│  │                 │  │                 │  │             │ │
-│  │ sisyphus        │  │ sisyphus        │  │             │ │
-│  │  └─ general 💬  │  │  └─ plan ⏳     │  │             │ │
-│  │                 │  │                 │  │             │ │
-│  │ "Should I..."   │  │                 │  │             │ │
-│  │                 │  │                 │  │             │ │
-│  │ [→ Go to VS Code]│ │                 │  │             │ │
-│  └─────────────────┘  └─────────────────┘  └─────────────┘ │
-│                                                             │
-│  ┌─────────────────┐  ┌─────────────────┐                  │
-│  │ Project D       │  │ Project E       │                  │
-│  │ 💤 Idle         │  │ 💤 Idle         │                  │
-│  └─────────────────┘  └─────────────────┘                  │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Priority Queue Logic
-
-Projects are sorted by:
-1. **Status**: blocked > working > idle
-2. **Within blocked**: oldest blockedSince first (FIFO)
-3. **Within working**: most recent activity first
-4. **Within idle**: alphabetical
-
-Grid layout: 2-3 columns depending on viewport. Blocked projects get larger cards.
-
-### Card States
-
-**Idle card:**
-- Muted colors
-- Just project name
-- Small
-
-**Working card:**
-- Normal colors
-- Project name + agent tree
-- Agents show spinner or progress indication
-- Medium size
-
-**Blocked card:**
-- Highlighted border (yellow/orange)
-- Project name + agent tree
-- Blocked agent shows question prominently
-- "Go to VS Code" button
-- Large size, floats to top-left
-
-### Project Card Detail
-
-```
-┌─────────────────────────────────────┐
-│ DungeonFriends            ⚠️ BLOCKED │
-│ C:/Users/james/projects/...         │
-├─────────────────────────────────────┤
-│                                     │
-│ 🏛️ sisyphus (main) 🔄ralph         │
-│    ├─ 🔍 explore    ✅ done         │
-│    │   "Analyzing codebase..."      │
-│    └─ ⚙️ general    💬 blocked      │
-│        "Implementing TTS pipeline   │
-│         with CosyVoice integration" │
-│                                     │
-│ ┌─────────────────────────────────┐ │
-│ │ "Should I refactor the TTS     │ │
-│ │  pipeline or add the new voice │ │
-│ │  first?"                       │ │
-│ └─────────────────────────────────┘ │
-│                                     │
-│         [→ Open in VS Code]         │
-│                                     │
-└─────────────────────────────────────┘
-```
-
-**Detail View Enhancements:**
-
-- Each agent shows 1-2 sentences describing their current task
-- Main agent shows current task from session (if available)
-- Task text wraps naturally (not just truncated tooltip)
-- Mode badges (🔄 ralph, ⚡ ultrawork, 📋 planning) shown on main agent
-
-## Bounce Mechanism (Windows)
-
-### MVP: "Good Enough" Bounce
-
-When user clicks "Open in VS Code":
-
-```javascript
-// Option 1: Just open the folder
-exec(`code "${projectPath}"`);
-
-// Option 2: Open folder AND copy question to clipboard
-clipboard.writeText(question);
-exec(`code "${projectPath}"`);
-// Show toast: "Question copied to clipboard"
-```
-
-This will:
-- Focus VS Code if it's open with that folder
-- Or open a new window if not
-- User finds the right terminal manually
-
-### Future: Smart Bounce
-
-Would require:
-- Sisyphus registering terminal PID on startup
-- Writing session file: `{project}/.argus-session.json`
-- Using Windows APIs to activate specific terminal
-
-Not MVP.
-
-## Tech Stack
-
-### Server
-- **Runtime**: Node.js or Bun
-- **Framework**: Express or Hono (lightweight)
-- **State**: In-memory Map (SQLite later for persistence)
-- **WebSocket**: ws or built-in
-
-### Client
-- **Framework**: Svelte or React (dealer's choice)
-- **Styling**: Tailwind CSS
-- **Build**: Vite
-- **State**: Simple reactive store
-
-### Deployment
-- Runs locally
-- Server starts on `localhost:ARGUS_PORT` (pick a port, e.g., 4242)
-- UI served by same server or separate Vite dev server
-- User opens `http://localhost:4242` in browser
-
-## File Structure
-
-```
-argus/
-├── README.md
-├── package.json
-├── server/
-│   ├── index.ts          # entry point
-│   ├── state.ts          # in-memory state management
-│   ├── events.ts         # event handlers
-│   └── types.ts          # TypeScript interfaces
-├── client/
-│   ├── index.html
-│   ├── src/
-│   │   ├── App.svelte    # or App.tsx
-│   │   ├── components/
-│   │   │   ├── ProjectCard.svelte
-│   │   │   ├── AgentTree.svelte
-│   │   │   └── BlockedQuestion.svelte
-│   │   ├── stores/
-│   │   │   └── state.ts
-│   │   └── lib/
-│   │       └── bounce.ts # VS Code launch logic
-│   └── vite.config.ts
-├── hooks/                 # Hook scripts for sisyphus integration
-│   └── send-to-argus.py  # or .js
-└── docs/
-    └── integration.md    # How to connect sisyphus
-```
-
-## MVP Scope
-
-### In Scope (v0.1)
-- [ ] Server receives events, maintains state
-- [ ] UI shows project cards
-- [ ] Priority queue layout (blocked → top-left)
-- [ ] Card shows agent tree with status
-- [ ] Blocked agents show question
-- [ ] Click to open project in VS Code
-- [ ] Copy question to clipboard on bounce
-- [ ] WebSocket for real-time updates
-- [ ] Works on Windows
-
-### Out of Scope (Future)
-- [x] Cute animated bots walking around (flag: `--cute` or `?cute` URL param) - **IMPLEMENTED**
-- [x] "Tired" state based on work time - **IMPLEMENTED**
-- [ ] User-defined priority pinning
-- [ ] Uptime / scoreboard metrics
-- [ ] Hover for expanded context
-- [ ] Mac support
-- [ ] Persistent history / SQLite
-- [ ] Smart terminal bounce (activate specific terminal)
-- [ ] Authentication (not needed for local)
-- [ ] **Claude Desktop monitoring** — show if Claude Desktop is running and if it's "thinking" (spinner active)
-- [x] **Discover running sessions** — poll for or detect sessions that started before Argus was running - **IMPLEMENTED**
-
----
-
-## Cute Mode Specification (`?cute` or `--cute`)
-
-Rimworld-style agent simulation within each project card.
-
-### Visual Design
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ DungeonFriends                                   ⚠️ BLOCKED │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│                    "Analyzing..."     "Implementing..."     │
-│                         💭               💭                 │
-│    🎩                   🤖               🤖                 │
-│    🤖  💬 "Should I                                         │
-│   main   refactor..."   architect      executor             │
-│    │                                                        │
-│────┴────────────────────────────────────────────────────────│
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Agent Behaviors
-
-**Conductor (Main Agent):**
-- Wears a hat (visual distinction)
-- Stays on left side of card
-- Shows speech bubble when blocked with the question
-- Summons/dismisses subagents (spawn animation)
-
-**Subagents:**
-- Spawn near conductor, animate outward
-- Wander randomly within card bounds
-- Periodically show speech bubbles with their task
-- Different colors based on status:
-  - Blue: working
-  - Amber: blocked
-  - Green: complete
-- Leg bobbing animation when working
-- Worried eyes when blocked
-- Happy closed eyes when complete
-
-**Tired State:**
-- After 30+ minutes: 😓 droopy eyes, slower movement
-- After 60+ minutes: 😴 very droopy, occasional yawn bubble
-
-### Animation Details
-
-| Animation | Trigger | Duration |
-|-----------|---------|----------|
-| Spawn | New agent appears | 500ms scale-in |
-| Wander | Idle subagent | Continuous, speed ~0.3px/frame |
-| Idle | Reached destination | 2-6s pause |
-| Bubble | Periodic or blocked | Toggle every idle cycle |
-| Leg bob | Working status | 0.3s alternating |
-| Despawn | Agent completes | 500ms scale-out |
-
-### Implementation
-
-- Toggle: 🤖 button in header, or `?cute` URL param
-- Component: `CuteWorld.svelte` replaces `AgentTree.svelte` in detailed view
-- Canvas: Each project card contains a simulation area (180px height)
-- State: Bot positions stored in component, synced with agent state
-
-## Implementation Order
-
-### Phase 1: Investigation
-1. Clone oh-my-claude / sisyphus
-2. Investigate event emission capabilities
-3. Document findings
-4. Decide: modify sisyphus or hook into claude code directly
-
-### Phase 2: Server
-1. Set up Node/Bun project
-2. Implement event ingestion endpoint
-3. Implement in-memory state
-4. Implement WebSocket broadcast
-5. Test with curl / mock events
-
-### Phase 3: Client
-1. Set up Vite + Svelte/React
-2. Implement project card component
-3. Implement priority queue layout
-4. Implement WebSocket connection
-5. Implement bounce (open in VS Code)
-
-### Phase 4: Integration
-1. Create hook script that POSTs to Argus
-2. Integrate with sisyphus (however investigation suggests)
-3. Test end-to-end with real sisyphus session
-
-### Phase 5: Polish
-1. Better error handling
-2. Reconnection logic for WebSocket
-3. Loading states
-4. Toast notifications on bounce
-5. README with setup instructions
-
-## Open Questions
-
-1. **Port selection**: Fixed port? Auto-discover? Config file?
-2. **Multiple users**: Does this need to handle multiple developers? (Probably not for MVP - single user, local only)
-3. **Session recovery**: If Argus server restarts, how do we know about running sessions? (Probably: we don't, they re-register on next event)
-4. **Sisyphus modification**: How willing is the oh-my-claude team to accept PRs? Or should Argus work independently via hooks?
+1. **Claude Code hook adapter**
+   - `hooks/argus-hook.mjs` maps lifecycle hooks to Argus events.
+   - Hooks provide prompt, notification, stop, and subagent lifecycle signals.
+
+2. **Transcript discovery and polling**
+   - `server/discover.ts` discovers active Claude Code and OpenClaw transcripts.
+   - Fast activity polling refreshes recent work; a slower pass detects pending questions and other state.
+   - Project paths come from transcript data rather than decoding ambiguous Claude directory names.
+
+3. **OpenClaw adapter**
+   - `server/openclaw-parser.ts` normalizes known OpenClaw message and tool-call shapes.
+   - Recent OpenClaw session transcripts are registered with `source: 'openclaw'`.
+   - Subagent lifecycle parsing and dedicated OpenClaw test coverage remain deferred and unverified; see [OpenClaw integration](specs/openclaw-integration.md).
+
+4. **Argus server**
+   - Receives events at `POST /events`.
+   - Exposes current state at `GET /state` and health at `GET /health`.
+   - Broadcasts state changes at `WebSocket /ws`.
+   - Maintains local in-memory state and cleans up stale activity.
+
+5. **Dashboard clients**
+   - The browser client runs at port 5173 in development and connects to the server on port 4242.
+   - The VS Code extension embeds a built copy of the webview and provides terminal integration.
+
+## State and Event Model
+
+The original design intentionally used a small normalized event schema so hooks and transcript adapters could feed the same state engine. That decision remains in effect.
+
+### Projects
+
+A project is keyed by its real filesystem path and contains one or more agents. Its derived status is one of:
+
+- `idle`
+- `working`
+- `blocked`
+- `error`
+- `rate_limited`
+- `server_running`
+
+Projects record last activity and, when applicable, when blocking began. Multiple sessions in the same directory are merged into one project card rather than duplicating the project.
+
+### Agents
+
+An agent records:
+
+- Identity and type: main, subagent, or background
+- Source: Claude Code or OpenClaw when known
+- Parent relationship for subagents
+- Status and current activity
+- Initial task, surfaced question, and to-do (TODO) progress
+- Spawn and activity timestamps plus derived working time
+- Session modes such as Ralph, Ultrawork, and planning
+- Transcript path and current line when available
+- Rate-limit reset metadata when detected
+
+Agent roles use the originating type/name when available and fall back conservatively when the event or transcript does not expose it.
+
+### Inbound events
+
+The normalized event vocabulary is:
+
+- `session_start`
+- `session_end`
+- `agent_spawn`
+- `agent_blocked`
+- `agent_unblocked`
+- `agent_complete`
+- `activity`
+
+The server accepts partial source data and degrades to a calm, partial display rather than fabricating state.
+
+## Dashboard Behavior
+
+### Priority and layout
+
+Blocked and error states receive the strongest placement and visual treatment. Blocked projects use first-in, first-out (FIFO) ordering, while non-blocked projects retain stable ordering to avoid a constantly rearranging dashboard. Cards can expand for blocked or focused work, and compact mode provides a denser layout.
+
+### Agent visualization
+
+The cute bot view is not merely decoration: it is the data visualization.
+
+- Bot count represents agent count.
+- Role color and held tool represent agent identity.
+- Expression, posture, and motion represent status.
+- Conductors remain visually distinct from delegated agents.
+- Speech bubbles present current activity or the blocking question.
+- Decision mode suppresses nonessential bubbles when input is needed.
+- Truncated bubbles can expand on hover; a project detail panel provides deeper current-state context.
+
+The original agent-tree view remains available for direct textual inspection alongside the glanceable character visualization.
+
+### Calm interaction rules
+
+- Use "Needs input" rather than alarm language.
+- Do not show blocked-state waiting timers, countdowns, or other anxiety-inducing elapsed timers; the shared low-salience fatigue duration may appear after 30 minutes for non-complete agents.
+- Keep audio optional and preserve complete visual operation when muted.
+- Use pointer cursors for exit actions, not routine in-dashboard selection.
+- Keep bots, bubbles, labels, and desks contained and legible.
+- Respect light/dark system themes and reduced-motion preferences.
+
+The full rationale and audit history live in [Design principles](specs/design-principles.md).
+
+## VS Code Bounce and Navigation
+
+The implemented bounce uses a `vscode://file/` uniform resource identifier (URI) for the project path. The project-card VS Code button uses the shared bounce helper to copy a surfaced blocked question or error before opening the project. The detail-panel button uses the same helper but supplies only a blocked question; it does not select an error message for copying.
+
+Bot and keyboard behavior is deliberately more direct. Clicking any bot triggers its in-dashboard bobble and reaction; clicking a blocked bot additionally opens the project in VS Code without copying the question. Number keys select a project, Tab cycles through blocked projects, and Enter opens the selected project directly without copying text. Clicking a non-blocked bot remains in the dashboard and may temporarily reveal its suppressed bubble.
+
+This is intentionally a project-level bounce. Activating a precise terminal or transcript position would require stable terminal/session registration and editor application programming interface (API) capabilities that are not currently available to Argus.
+
+Transcript navigation remains future work. The active source note is intentionally preserved in `client/src/components/CuteWorld.svelte`:
+
+> FUTURE: Bubble click → transcript navigation (not yet working, needs VS Code terminal scrollback API)
+
+## Current Capability Summary
+
+| Capability | Status | Notes |
+|---|---|---|
+| Event ingestion and in-memory state | Implemented | Shared normalized event model |
+| HTTP state and WebSocket updates | Implemented | Server defaults to port 4242 |
+| Browser dashboard | Implemented | Vite development server uses port 5173 |
+| Project prioritization and stable ordering | Implemented | Blocked projects first; blocked FIFO |
+| Multiple conductors and subagents | Implemented | Same-path sessions merge into one project |
+| Questions, activity, TODOs, and modes | Implemented | Hook and transcript evidence is combined |
+| VS Code project bounce and clipboard copy | Implemented | Project-card button copies a blocked question or error; detail panel copies a blocked question |
+| Cute bot and textual agent views | Implemented | Includes fatigue, completion, error, rate-limit, and server states |
+| Session recovery by transcript discovery | Implemented | Claude Code and core OpenClaw discovery |
+| OpenClaw main-session discovery and parsing | Implemented, verification limited | Known JSON Lines (JSONL) shapes are normalized |
+| OpenClaw subagent lifecycle | Deferred/unverified | Transcript layout and lifecycle patterns need real samples |
+| Dedicated OpenClaw parser/discovery tests | Deferred | Requires sanitized representative fixtures |
+| Transcript-position navigation | Future | Source FUTURE note remains active |
+| Persistent history/database | Future | Current product intentionally shows live state |
+
+## Historical Design Decisions
+
+The repository began as a minimum viable product (MVP) specification with several unresolved implementation choices. Those questions produced the following durable decisions:
+
+### Hooks plus discovery, not a Sisyphus fork
+
+The early design considered modifying Sisyphus to emit events. Argus instead uses Claude Code's native hooks and transcript discovery so it can operate independently. Polling is also important for recovery when Argus starts after a session and for signals not reliably represented by a hook.
+
+### Current state over history
+
+The original data model used an in-memory map, with SQLite deferred. That choice supports the product's role as a calm attention router rather than an audit log. Persistent history remains possible future work, but it must not displace live triage.
+
+### Windows-first project routing
+
+The initial goal was a practical, local Windows workflow. Opening the project in VS Code and copying the question was chosen as the reliable "good enough" bounce. Precise terminal activation was explicitly deferred.
+
+### Data pipeline before visual polish
+
+The original implementation guidance was "the cute bots can wait; the data pipeline cannot." The bot view later became the product's distinctive visualization, but the principle remains: visual confidence must be grounded in real event/transcript state.
+
+### Calm over complete
+
+The dashboard intentionally trades information density for spatial clarity and low anxiety. Always-visible but intelligently suppressed speech bubbles, stable project ordering, non-alarming language, and role-specific bot identity all follow from that decision.
+
+## Remaining Roadmap
+
+The following items are not represented as completed work:
+
+### Integration and navigation
+
+- Verify OpenClaw parsing against sanitized transcripts from multiple real installations.
+- Define and implement OpenClaw subagent spawn/work/complete mapping.
+- Add dedicated OpenClaw parser, discovery, mixed-source, and lifecycle tests.
+- Investigate transcript-position navigation if VS Code exposes a stable terminal or scrollback API.
+- Investigate smart terminal bounce only if sessions can register a reliable terminal identity.
+
+### Product scope
+
+- Optional user-defined priority pinning
+- Optional persistent history without turning the dashboard into a log viewer
+- Claude Desktop activity monitoring
+- Platform-specific verification beyond the Windows-first workflow
+
+### Explicit non-goals unless requirements change
+
+- Authentication for the local single-user workflow
+- OpenClaw gateway WebSocket interception
+- Answering questions inside the dashboard
+- Bot clustering that sacrifices separation and legibility
 
 ## Success Criteria
 
-MVP is successful when:
-1. I can run 3 sisyphus sessions on 3 projects
-2. Argus shows all 3 projects
-3. When one blocks with a question, it floats to top-left
-4. I click, VS Code opens to that project
-5. Question is in my clipboard
-6. I answer in terminal, agent unblocks
-7. Argus updates to show it's working again
+Argus succeeds when a developer can run several sessions across projects, immediately see which project needs input, read the actual question, open the correct project, respond in the original terminal, and see the dashboard return to an active state without visual urgency or ambiguity.
 
-That's the loop.
+## Related Documents
 
----
-
-## Notes for Claude Code
-
-When implementing this:
-
-1. **Start with investigation** - don't build until you understand the event source
-2. **Mock events first** - get the server + UI working with fake data
-3. **Keep it simple** - no premature optimization, no over-engineering
-4. **Windows-first** - test on Windows, don't assume Mac patterns
-5. **Ask me** - if something is ambiguous, ask rather than guess
-
-The cute bots can wait. The data pipeline cannot.
+- [README and operating commands](README.md)
+- [Design principles and audit framework](specs/design-principles.md)
+- [OpenClaw integration boundary](specs/openclaw-integration.md)
+- [VS Code extension workflow](vscode-extension/README.md)

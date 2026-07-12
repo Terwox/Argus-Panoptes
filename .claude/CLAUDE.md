@@ -20,10 +20,11 @@ A **calm, ambient dashboard** for monitoring Claude Code sessions across multipl
 
 ### Calm UX (No Anxiety)
 
-1. **NO VISIBLE TIMERS** - No "47s ago" anxiety counters. No elapsed time displays. Just "working" vs "blocked".
+1. **NO PROMINENT URGENCY TIMERS** - No blocked-state waiting timers or countdowns, anxiety-inducing "47s ago" counters, or continuously prominent elapsed-time displays. The shared low-salience fatigue duration may appear only after 30 minutes for any non-complete agent, matching current runtime behavior; it is a wellbeing signal, never an urgency or performance measure.
 
 2. **NO ANXIETY-INDUCING ELEMENTS** - This dashboard helps users calmly switch context and play whack-a-mole with projects. It is NOT a GO-GO-GO urgency dashboard.
-   - No timers on blocked items
+   - No blocked-state waiting timers or countdowns
+   - The shared fatigue duration is allowed after 30 minutes for any non-complete agent as a subdued wellbeing cue
    - No pulsing/flashing animations on blocked states
    - "Needs input" instead of "BLOCKED"
 
@@ -100,15 +101,13 @@ The dashboard runs at http://localhost:5173.
 
 **NEVER kill all Chrome processes** - The user is coworking and uses Chrome. Instead, use the screenshot script which launches its own browser instance. If screenshots are timing out, debug the script itself rather than killing processes.
 
-## Known Issues
-
-- **`start.bat` doesn't work yet** — `npm run dev:all` relies on `concurrently` which isn't found outside VS Code's terminal. PATH resolution for node, npm, and local `node_modules/.bin` binaries fails when launched from Explorer/double-click. Workaround: start server and client from VS Code terminal.
-
 ## Development
 
 - Server: `npm run dev:server` (runs on port 4242)
-- Client: `npm run dev` (runs on port 5173)
-- Both: `npm run dev:all`
+- Client: `npm run dev:client` (runs on port 5173)
+- Both: `npm run dev`
+- Both + open browser: `npm run dev:all`
+- Windows Explorer/double-click: `start.bat`
 
 ## Architecture
 

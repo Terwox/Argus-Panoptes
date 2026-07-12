@@ -6,31 +6,27 @@
 
 **Multi-Agent Supervision Dashboard**
 
-A real-time dashboard for monitoring multiple concurrent Claude Code / Sisyphus sessions across projects. Named for Argus Panoptes, the hundred-eyed giant of Greek mythology.
+Argus is a calm, real-time dashboard for monitoring concurrent Claude Code sessions across projects. It receives Claude Code lifecycle events, discovers active transcripts, and parses recent OpenClaw transcripts. Named for Argus Panoptes, the hundred-eyed giant of Greek mythology.
 
-## What It Does
+## Purpose
 
-Help a developer running multiple parallel agentic coding sessions triage their attention.
+Argus helps a developer running parallel agentic coding sessions decide where attention is needed:
 
-*"Which blocked agent needs me? What's the question? Bounce me there."*
+> Which agent needs me? What is the question? Bounce me there.
 
-**This IS:**
+**Argus is:**
+
 - An attention router
-- A state-based view (what's blocked NOW, not what happened)
-- A cognitive load reducer for concurrent agentic work
+- A current-state view of working, blocked, idle, rate-limited, server, and error states
+- A cognitive-load reducer for concurrent agentic work
 
-**This is NOT:**
-- A "do everything from here" dashboard
-- An event log / timeline viewer
-- A replacement for the terminal
+**Argus is not:**
 
-## The Loop
+- A replacement for the terminal or editor
+- A transcript, event-log, or performance-debugging interface
+- A place to answer agent questions directly
 
-1. See at a glance which projects have blocked agents
-2. See the question/blocker for each
-3. Click to bounce to the correct VS Code window
-4. Answer the question there (not in the dashboard)
-5. Return to dashboard to see what's next
+The normal loop is: notice a project that needs input, read the surfaced question, open that project in VS Code, answer there, then return to Argus.
 
 ## Quick Start
 
@@ -40,19 +36,22 @@ Help a developer running multiple parallel agentic coding sessions triage their 
 npm install
 ```
 
-### 2. Start the server and UI
+### 2. Start the server and client
 
 ```bash
 npm run dev
 ```
 
 This starts:
-- Server at http://localhost:4242
-- UI dev server at http://localhost:5173
+
+- The Argus server, with Hypertext Transfer Protocol (HTTP) application programming interface (API) endpoints and a WebSocket channel, at <http://localhost:4242>
+- The Vite client at <http://localhost:5173>
+
+On Windows, `start.bat` starts the server and client in separate terminals and opens the client in a browser. `npm run dev:all` provides the same combined development flow and opens the browser.
 
 ### 3. Install the Claude Code hook
 
-Add this to your `~/.claude/settings.json`:
+Add the following hooks to `~/.claude/settings.json` and update the script path for your installation:
 
 ```json
 {
@@ -60,14 +59,26 @@ Add this to your `~/.claude/settings.json`:
     "SessionStart": [{
       "hooks": [{ "type": "command", "command": "node D:/git/Argus-Panoptes/hooks/argus-hook.mjs" }]
     }],
+    "SessionEnd": [{
+      "hooks": [{ "type": "command", "command": "node D:/git/Argus-Panoptes/hooks/argus-hook.mjs" }]
+    }],
     "Notification": [{
       "matcher": "idle_prompt",
+      "hooks": [{ "type": "command", "command": "node D:/git/Argus-Panoptes/hooks/argus-hook.mjs" }]
+    }],
+    "PermissionRequest": [{
       "hooks": [{ "type": "command", "command": "node D:/git/Argus-Panoptes/hooks/argus-hook.mjs" }]
     }],
     "UserPromptSubmit": [{
       "hooks": [{ "type": "command", "command": "node D:/git/Argus-Panoptes/hooks/argus-hook.mjs" }]
     }],
     "Stop": [{
+      "hooks": [{ "type": "command", "command": "node D:/git/Argus-Panoptes/hooks/argus-hook.mjs" }]
+    }],
+    "PreToolUse": [{
+      "hooks": [{ "type": "command", "command": "node D:/git/Argus-Panoptes/hooks/argus-hook.mjs" }]
+    }],
+    "PostToolUse": [{
       "hooks": [{ "type": "command", "command": "node D:/git/Argus-Panoptes/hooks/argus-hook.mjs" }]
     }],
     "SubagentStart": [{
@@ -80,32 +91,55 @@ Add this to your `~/.claude/settings.json`:
 }
 ```
 
-**Important:** Update the path to match your installation location.
+Argus also polls Claude Code transcripts to recover sessions that predate the server and detect pending questions when a hook is insufficient.
 
 ### 4. Test with mock events
+
+With the development server running:
 
 ```bash
 node test/mock-events.mjs
 ```
 
-Open http://localhost:4242 to see the dashboard populate with test data.
+Open or refresh <http://localhost:5173> to see the client populate with test data.
 
-## Features
+## Current Capabilities
 
-- **Real-time updates** via WebSocket
-- **Priority queue** - blocked projects float to the top
-- **Simple/Detailed view toggle** - see just status or full agent tree
-- **Bounce to VS Code** - one click to open the project, question copied to clipboard
-- **Subagent tracking** - see spawned agents and their status
+- Real-time state updates over WebSocket
+- Stable project ordering with blocked work prioritized first
+- Simple, detailed, compact, focus, and project-detail views
+- One-click VS Code routing with blocked questions copied to the clipboard
+- Multiple conductors and subagents per project
+- Current activity, task, to-do (TODO), mode, rate-limit, server, fatigue, and completion states
+- Transcript discovery and polling for Claude Code
+- Core OpenClaw transcript discovery and normalization
+- Optional sound and desktop notifications
+- Light, dark, system-theme, and reduced-motion support
+- Embedded VS Code dashboard and terminal integration
+
+OpenClaw subagent lifecycle parsing and dedicated OpenClaw tests remain deferred because real transcript variants have not been comprehensively verified. See the integration specification for the precise boundary.
 
 ## Architecture
 
+```text
+Claude Code hooks ───────────────┐
+Claude Code transcript polling ──┼─> Argus server (state + HTTP + WebSocket) ─> Browser client
+OpenClaw transcript polling ─────┘                                      └─────> VS Code webview
 ```
-Claude Code Session → Hook Script → Argus Server → WebSocket → Browser UI
-```
 
-The hook script intercepts Claude Code lifecycle events and POSTs them to the Argus server, which maintains state and broadcasts updates to connected browsers.
+Key directories:
 
-## Status
+- `hooks/` — Claude Code hook adapter
+- `server/` — event ingestion, discovery, parsing, state, HTTP, and WebSocket server
+- `shared/` — types shared by the server and client
+- `client/` — Svelte/Vite dashboard
+- `vscode-extension/` — embedded dashboard and terminal integration
 
-Early development. See [argus-spec.md](argus-spec.md) for the full specification.
+## Project Status and Documentation
+
+Argus is an implemented local dashboard with an active roadmap, not an unbuilt minimum viable product (MVP). The current boundaries and historical rationale are documented in:
+
+- [Product specification](argus-spec.md)
+- [Design principles and audit framework](specs/design-principles.md)
+- [OpenClaw integration](specs/openclaw-integration.md)
+- [VS Code extension](vscode-extension/README.md)

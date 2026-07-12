@@ -1,203 +1,178 @@
-# OpenClaw Integration Spec
+# OpenClaw Integration
 
-**Status:** Ready to implement (needs a machine with OpenClaw running to verify JSONL parsing)
-**Date:** 2026-02-08
-**Prereq:** OpenClaw agent configured and generating transcripts
+**Status:** Core main-session discovery, JSON Lines (JSONL) normalization, and activity/to-do (TODO) polling are implemented. Question and inferred-status extraction, real-world format coverage, subagent lifecycle handling, and dedicated OpenClaw tests remain deferred/unverified.
+
+**Original research date:** 2026-02-08
 
 ## Goal
 
-Detect running OpenClaw sessions alongside Claude Code sessions so they appear as project cards on the Argus dashboard. OpenClaw agents and their sub-agents should render like any other bot — with role-appropriate colors and tools.
+Detect recent OpenClaw sessions alongside Claude Code sessions so they appear as project cards in Argus and reuse the same calm role and activity presentation where the available transcript data supports it.
 
-## Background Research
+This document distinguishes repository-proven behavior from historical research and deferred work. It does not guarantee OpenClaw hook, gateway WebSocket, model, transcript, or subagent lifecycle behavior.
 
-| Aspect | Claude Code | OpenClaw |
-|--------|------------|----------|
-| **Transcript dir** | `~/.claude/projects/{encodedDir}/*.jsonl` | `~/.openclaw/agents/{agentId}/sessions/{sessionId}.jsonl` |
-| **Sub-agents** | Subdirectory under session | Session key `agent:<id>:subagent:<uuid>` |
-| **Hooks (real-time)** | Rich: SessionStart, SubagentStart, PreToolUse, etc. | `session:start`/`session:end` **planned but not yet shipped** |
-| **Outbound hooks** | POSTs to HTTP endpoint (our hook script) | Not supported yet (hooks run inside gateway only) |
-| **Session store** | None (transcripts only) | `sessions.json` map per agent |
-| **JSONL format** | Anthropic API message format (type/message/content blocks) | **Undocumented — must verify from real transcripts** |
+## Implemented Boundary
 
-Key docs:
+The repository currently includes:
+
+- `server/discover.ts`
+  - Scans `~/.openclaw/agents/{agentId}/sessions/` for recent `.jsonl` files.
+  - Runs that scan from `discoverExistingSessions()` only after the Claude Code projects directory check; if `~/.claude/projects` is absent, the function returns before reaching OpenClaw discovery.
+  - Ignores filenames containing `.deleted.`.
+  - Uses a 30-minute modification threshold for OpenClaw sessions.
+  - Reads normalized entries near the start of a transcript to obtain `cwd`.
+  - Uses `IDENTITY.md` in the workspace for an agent name when available, otherwise the OpenClaw agent directory name.
+  - Registers the session in shared state with `source: 'openclaw'` and records the transcript path for polling.
+- `server/openclaw-parser.ts`
+  - Recognizes session entries with a `cwd`.
+  - Maps known `message` roles to the normalized Claude Code-like shape used by discovery.
+  - Maps OpenClaw `toolCall` blocks to normalized `tool_use` blocks.
+  - Preserves text and thinking blocks and ignores unsupported top-level entry kinds.
+- `shared/types.ts` and `server/state.ts`
+  - Carry the optional `openclaw` source on events and agents.
+- Existing fast transcript polling
+  - Includes registered OpenClaw transcript paths in `state.getActiveAgentTranscripts()`.
+  - Reuses normalized entries for current-activity and TODO extraction in `fastActivityCheck()`.
+  - Does not include OpenClaw transcripts in the pending-question and inferred-status polling performed by `checkPendingQuestions()`.
+
+Core OpenClaw support is no longer wholly unimplemented, but the implemented claim is limited to discovery, normalization of the shapes encoded in the current parser, and activity/TODO polling for registered sessions.
+
+## Current Data Flow
+
+```text
+~/.openclaw/agents/{agentId}/sessions/{sessionId}.jsonl
+                         │
+                         ▼
+             recent-transcript discovery
+                         │
+                         ▼
+              OpenClaw entry normalizer
+                         │
+                         ▼
+           shared activity/TODO extraction
+                         │
+                         ▼
+          Argus project + main agent state
+                         │
+                         ▼
+               browser / VS Code user interface (UI)
+```
+
+### Discovery behavior
+
+Startup OpenClaw discovery is not standalone on OpenClaw-only installations. `discoverExistingSessions()` currently returns before the OpenClaw scan when `~/.claude/projects` is absent, even if `~/.openclaw/agents` exists.
+
+1. If `~/.openclaw/agents` does not exist, discovery returns no OpenClaw sessions.
+2. Each agent's `sessions` directory is scanned for recent JSONL transcripts.
+3. Archived names containing `.deleted.` and inaccessible paths are skipped.
+4. A transcript is treated as OpenClaw when its first entry has `type: "session"`.
+5. The first few entries are normalized until a `cwd` is found.
+6. The session is merged into the project derived from that real working directory.
+
+There is no implemented `sessions.json` fallback. A transcript without a usable `cwd` is not registered by the current OpenClaw path.
+
+### Normalized entry behavior
+
+The adapter currently understands the following repository-defined shapes:
+
+| OpenClaw entry/block | Normalized result |
+|---|---|
+| `session` with `cwd` | `system` entry with `cwd` |
+| `message.role: user` | `user` message |
+| `message.role: assistant` | `assistant` message |
+| `message.role: toolResult` | `system` message |
+| `content.type: toolCall` | `tool_use` with name and arguments |
+| `content.type: text` | Text block |
+| `content.type: thinking` | Thinking block |
+| `model_change`, `thinking_level_change`, `custom` | Ignored by the normalizer |
+
+These mappings are implementation facts, not proof that every OpenClaw version or provider emits the same shape.
+
+## Architecture Decision: Polling
+
+Argus uses transcript polling for OpenClaw. It does not install an OpenClaw hook, tap the gateway WebSocket, or claim real-time OpenClaw lifecycle events. Polling keeps the integration isolated from undocumented gateway behavior and matches the recovery path already used for Claude Code transcripts.
+
+For registered OpenClaw sessions, the implemented polling boundary is current activity and TODO extraction through `fastActivityCheck()`. The heavier `checkPendingQuestions()` path enumerates only `~/.claude/projects` and Claude Code transcripts returned by `findActiveTranscripts()`, so it does not currently infer OpenClaw pending questions, blocked state, system errors, rate limits, or running-server state.
+
+Historical research suggested that outbound lifecycle hooks were unavailable or incomplete at the time of the original design. That external claim was not revalidated during this documentation cleanup, so the repository implementation—not the old research note—is authoritative.
+
+## Deferred and Unverified Work
+
+### Startup discovery coupling
+
+Decoupling OpenClaw startup discovery from the existence of `~/.claude/projects` is a known limitation and a deferred runtime fix. This document records the current control flow only; no runtime code was changed or behavior verified as part of this documentation work.
+
+### Question and blocked-state extraction
+
+OpenClaw pending-question and inferred blocked-state extraction are not implemented by the current polling path. The same boundary also leaves OpenClaw system-error, rate-limit, and running-server inference unimplemented. Future work must first verify representative OpenClaw question, permission, error, rate-limit, and long-running-process transcript shapes, then either extend `checkPendingQuestions()` to enumerate registered OpenClaw transcripts safely or add an equivalent source-aware polling path.
+
+### Subagent lifecycle
+
+OpenClaw-specific subagent handling is not implemented or verified. In particular, the repository does not yet establish whether a supported installation stores subagents in separate transcripts, encodes them inline through tool calls, or uses another relationship model.
+
+Before implementation, representative sanitized transcripts must answer:
+
+1. How a subagent is identified and linked to a parent session.
+2. Whether spawn, work, completion, and failure are explicit events or inferred states.
+3. Whether subagent transcripts have stable filenames or session keys.
+4. Whether agent IDs are stable across restarts.
+5. How multiple OpenClaw agents working in one directory should merge without collisions.
+
+Only after those facts are established should Argus register OpenClaw agents as `type: 'subagent'` with a `parentId`.
+
+### Dedicated tests
+
+There are no dedicated OpenClaw parser, discovery, or lifecycle tests in the current test inventory. TypeScript compilation checks the code shape but does not validate real transcript behavior.
+
+Required future coverage:
+
+1. **Parser fixtures** — Sanitized session, user, assistant, thinking, tool call, tool result, malformed, and unsupported entries.
+2. **Discovery fixtures** — Recent/stale transcripts, `.deleted.` archives, missing directories, missing `cwd`, and inaccessible paths.
+3. **Mixed-source integration** — Claude Code and OpenClaw sessions in the same project merge without losing source identity.
+4. **Activity/TODO extraction** — Registered OpenClaw transcripts produce the intended current activity and TODO state through the fast polling path.
+5. **Question and inferred-status extraction** — Verified OpenClaw fixtures produce pending-question, blocked, system-error, rate-limit, and running-server state after that polling path is implemented.
+6. **Subagent lifecycle** — Spawn, work, completion, failure, parent linkage, and stale cleanup, once the source format is verified.
+
+Dedicated tests remain a required follow-up; this document must not imply that the current parser has fixture-backed OpenClaw coverage.
+
+### Live transcript verification
+
+The current parser encodes a known schema, but this cleanup did not use a live OpenClaw installation or capture new transcript samples. The following remain unverified across installations and versions:
+
+- Top-level JSONL entry variants
+- The availability and location of `cwd`
+- Tool-call argument shapes
+- Question/permission patterns
+- Subagent storage and lifecycle
+- Model metadata and whether it is useful to display
+
+## Optional UI Differentiation
+
+Agents retain the shared role-based visual system. A source badge, antenna variation, or other OpenClaw distinction may be added later, but it is cosmetic and lower priority than correct discovery, lifecycle semantics, and test coverage.
+
+## Explicit Non-Goals
+
+- No OpenClaw hook script without a verified supported outbound mechanism
+- No gateway WebSocket interception
+- No claims about OpenClaw model/provider behavior
+- No `sessions.json` watcher
+- No fabricated subagent state from filenames alone
+- No source-specific visual treatment that breaks the universal role/color mapping
+
+## Historical Research References
+
+These links informed the original design but are not treated as freshly verified implementation evidence:
+
 - [Session Management](https://docs.openclaw.ai/concepts/session)
 - [Sub-Agents](https://docs.openclaw.ai/tools/subagents.md)
 - [Hooks](https://docs.openclaw.ai/automation/hooks.md)
 
-## Architecture Decision
+## Completion Criteria for the Deferred Work
 
-**Polling only.** OpenClaw's hook system can't POST to external endpoints and the relevant lifecycle events aren't shipped yet. We reuse the same polling pattern Argus already uses for Claude Code: scan transcript directories for recently-modified `.jsonl` files.
+OpenClaw integration should be described as fully verified only when:
 
-Trade-off: No real-time events means up to 10s latency on state changes (matches existing Claude Code polling interval). This is fine for a calm dashboard. When OpenClaw ships `session:start`/`session:end` hooks with outbound HTTP, we can add a hook script for real-time updates.
-
-## Implementation Plan
-
-### Step 0: Verify JSONL format (manual, before coding)
-
-On a machine with OpenClaw running:
-
-```bash
-# Find transcript files
-ls ~/.openclaw/agents/*/sessions/*.jsonl
-
-# Inspect a recent one
-tail -20 ~/.openclaw/agents/<agentId>/sessions/<sessionId>.jsonl | head -5
-```
-
-**Questions to answer from real transcripts:**
-
-1. Does each line have a `type` field? What values? (`user`, `assistant`, `system`, `tool_result`?)
-2. Is there a `cwd` or `workspaceDir` field? Where does it appear?
-3. What do tool_use blocks look like? Same `{type: "tool_use", name: "...", input: {...}}` structure?
-4. How are sub-agent transcripts stored? Separate files or inline?
-5. Does `sessions.json` contain the workspace/cwd mapping we need?
-
-Record findings in `specs/openclaw-jsonl-format.md` before proceeding.
-
-### Step 1: Add OpenClaw discovery path to `server/discover.ts`
-
-**New constant:**
-```typescript
-const OPENCLAW_AGENTS_DIR = join(homedir(), '.openclaw', 'agents');
-```
-
-**New function: `findActiveOpenClawTranscripts()`**
-
-Mirrors `findActiveTranscripts()` but walks the different directory structure:
-
-```
-~/.openclaw/agents/
-  ├── agent-abc/
-  │   └── sessions/
-  │       ├── sessions.json          ← agent metadata, workspace mapping
-  │       ├── sess-001.jsonl         ← main session transcript
-  │       └── sess-001-subagent-*.jsonl  ← sub-agent transcripts (if separate)
-  └── agent-def/
-      └── sessions/
-          └── ...
-```
-
-Logic:
-1. Iterate `~/.openclaw/agents/*/sessions/`
-2. Find `.jsonl` files modified within `RECENT_THRESHOLD` (5 min)
-3. Skip archived files (`*.deleted.*` suffix)
-4. Return list of active transcript paths
-
-**New function: `parseOpenClawTranscript(path)`**
-
-Returns `{ sessionId, cwd, source: 'openclaw' }` or null.
-
-- `sessionId`: filename without `.jsonl`
-- `cwd`: Try extracting from transcript entries first (look for `cwd`, `workspaceDir`, or similar field). Fallback: read `sessions.json` in same directory for workspace mapping. Last resort: use the agent directory name.
-
-### Step 2: Add `source` field to Agent type
-
-In `shared/types.ts`, add to the `Agent` interface:
-
-```typescript
-source?: 'claude-code' | 'openclaw';
-```
-
-This lets the UI render OpenClaw bots differently if we want (e.g., claw icon, different antenna style). It also helps the server route to the correct parser.
-
-In `ArgusEvent`:
-
-```typescript
-source?: 'claude-code' | 'openclaw';
-```
-
-### Step 3: Create `server/openclaw-parser.ts`
-
-Adapter that normalizes OpenClaw JSONL entries into the same internal format the existing code expects. This isolates all OpenClaw-specific parsing so `discover.ts` stays clean.
-
-```typescript
-// Adapts OpenClaw transcript entries to the shape discover.ts expects
-export interface NormalizedEntry {
-  type: 'user' | 'assistant' | 'system';
-  message?: {
-    content?: string | ContentBlock[];
-  };
-  cwd?: string;
-}
-
-export function normalizeOpenClawEntry(raw: unknown): NormalizedEntry | null {
-  // Map OpenClaw fields to Claude Code transcript shape
-  // IMPLEMENTATION DEPENDS ON STEP 0 FINDINGS
-}
-```
-
-**Why a separate file?** The OpenClaw JSONL format is undocumented and may change. Isolating the adapter means format changes only touch one file.
-
-### Step 4: Wire into discovery loop
-
-In `discoverExistingSessions()` (discover.ts:893), add a second scan after the Claude Code scan:
-
-```typescript
-// Existing: scan ~/.claude/projects/
-// ...existing code...
-
-// NEW: scan ~/.openclaw/agents/
-if (existsSync(OPENCLAW_AGENTS_DIR)) {
-  // iterate agents, find active transcripts, parse, register
-  // Use source: 'openclaw' when calling state.onSessionStart()
-}
-```
-
-In `checkPendingQuestions()` (the 10s polling loop), add OpenClaw transcripts to the scan list. The existing polling already iterates all registered sessions — we just need to make sure OpenClaw sessions get registered on startup and their transcripts get checked.
-
-### Step 5: Sub-agent detection
-
-OpenClaw sub-agents either:
-- (a) Get their own transcript files with a naming convention like `{sessionId}-subagent-{uuid}.jsonl`, or
-- (b) Are tracked inline in the main transcript via tool calls
-
-**If (a):** Scan for files matching the sub-agent pattern, register as `type: 'subagent'` with `parentId` set to the main session.
-
-**If (b):** Look for sub-agent spawn/complete patterns in the main transcript (similar to how we detect `Task` tool calls for Claude Code subagents in `extractCurrentActivity`).
-
-**Determine which by inspecting real transcripts in Step 0.**
-
-### Step 6: UI differentiation (optional, low priority)
-
-In `CuteBot.svelte`, optionally render OpenClaw bots with a visual distinction:
-- Different antenna style (claw-shaped?)
-- Small "OC" badge or different eye shape
-- Keep the same role-based color system — roles are universal
-
-This is cosmetic and can ship later.
-
-## What We're NOT Doing
-
-- **No OpenClaw hook script.** Their hooks can't POST externally yet. When they can, we'll add `hooks/openclaw-hook.ts`.
-- **No gateway WebSocket tap.** OpenClaw's gateway WS is for its own clients. Tapping it would be fragile and undocumented.
-- **No `sessions.json` watching.** The store file is for OpenClaw's internal session management. We only read it as a fallback for `cwd` extraction.
-
-## Testing Plan
-
-1. **Unit: JSONL parsing** — Capture 2-3 real OpenClaw transcript snippets, write parsing tests
-2. **Integration: Discovery** — Verify `discoverExistingSessions()` finds OpenClaw sessions alongside Claude Code sessions
-3. **Visual: Dashboard** — Confirm OpenClaw project cards render correctly with agents, speech bubbles, and status
-4. **Edge cases:**
-   - No `~/.openclaw` directory (graceful skip)
-   - OpenClaw installed but no active sessions
-   - Mixed: Claude Code and OpenClaw both working on the same project directory (should merge into one card via `projectId` hash)
-   - Sub-agent lifecycle (spawn → work → complete)
-   - Stale/archived transcripts (`.deleted.*` suffix) should be ignored
-
-## File Changes Summary
-
-| File | Change |
-|------|--------|
-| `shared/types.ts` | Add `source?: 'claude-code' \| 'openclaw'` to Agent and ArgusEvent |
-| `server/openclaw-parser.ts` | **New file** — JSONL entry normalization adapter |
-| `server/discover.ts` | Add `OPENCLAW_AGENTS_DIR`, `findActiveOpenClawTranscripts()`, wire into `discoverExistingSessions()` and polling |
-| `server/state.ts` | Pass `source` through `onSessionStart()` to Agent records |
-| `client/src/components/CuteBot.svelte` | (Optional) Visual distinction for OpenClaw bots |
-
-## Open Questions
-
-1. **JSONL schema** — Blocked until we see real transcripts. The format is undocumented.
-2. **`cwd` extraction** — Where does OpenClaw store the working directory? Transcript field? `sessions.json`? Agent config?
-3. **Sub-agent transcript layout** — Separate files or inline in main transcript?
-4. **Agent ID stability** — Is `agentId` in the directory path stable across restarts, or does it rotate?
-5. **Multi-model** — OpenClaw is model-agnostic. Should we show which model an OpenClaw agent is using? (Nice-to-have, not MVP.)
+1. Main-session parsing is validated against representative sanitized fixtures.
+2. Discovery and mixed-source behavior have dedicated automated coverage.
+3. Pending-question, blocked, system-error, rate-limit, and running-server extraction is implemented and tested against verified transcript shapes.
+4. Subagent transcript layout and parent relationships are established from real evidence.
+5. Subagent spawn-to-completion behavior is implemented and tested.
+6. Documentation records the supported schema/version boundary without inventing hook, WebSocket, model, or lifecycle guarantees.
