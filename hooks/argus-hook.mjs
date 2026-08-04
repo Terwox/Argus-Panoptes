@@ -15,8 +15,10 @@ import { basename, join } from 'path';
 // Debug log file
 const DEBUG_LOG = 'd:/git/Argus-Panoptes/hook-debug.log';
 
-// Target mode: 'extension' (VS Code) or 'standalone' (browser dashboard)
-// Standalone (localhost:5173) is the default - set ARGUS_TARGET=extension for VS Code WebView
+// Reserved target mode for launch behavior. Event forwarding currently goes to
+// the local Argus server regardless of whether the standalone dashboard or VS
+// Code WebView is used.
+// Standalone (localhost:5173) is the default; ARGUS_TARGET=extension is reserved for VS Code WebView launch handling.
 const ARGUS_TARGET = process.env.ARGUS_TARGET || 'standalone';
 
 const ARGUS_PORT = process.env.ARGUS_PORT || 4242;

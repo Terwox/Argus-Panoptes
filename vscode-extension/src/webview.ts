@@ -2,7 +2,9 @@
  * Argus Dashboard WebView Panel
  *
  * Renders the Svelte dashboard inside a VS Code WebView panel.
- * Uses postMessage API for communication (WebSockets don't work in WebViews).
+ * Uses VS Code postMessage to bridge dashboard state into the WebView. The
+ * extension-host server still owns HTTP and WebSocket behavior outside this
+ * WebView boundary.
  */
 
 import * as vscode from 'vscode';
@@ -222,12 +224,15 @@ export class ArgusDashboardPanel {
     html = html.replace(/src="\/assets\//g, `src="${assetsUri}/`);
     html = html.replace(/href="\/assets\//g, `href="${assetsUri}/`);
 
-    // Inject flag to tell client it's running in VS Code WebView (uses postMessage, not WebSocket)
+    // Inject flag to tell client it's running in VS Code WebView, where the
+    // extension bridges state with postMessage instead of opening a WebSocket
+    // from the WebView document itself.
     // Note: We now use acquireVsCodeApi presence for detection, but keep flag for backwards compatibility
     const flagScript = `<script>window.ARGUS_VSCODE_WEBVIEW = true;</script>`;
     html = html.replace('</head>', `${flagScript}</head>`);
 
-    // Add CSP meta tag (no WebSocket/connect-src needed - we use postMessage)
+    // Add CSP meta tag. The WebView document receives state through the
+    // extension's postMessage bridge, so it does not need connect-src.
     const cspSource = webview.cspSource;
     const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline'; img-src ${cspSource} data:;">`;
     html = html.replace('<head>', `<head>${cspMeta}`);
